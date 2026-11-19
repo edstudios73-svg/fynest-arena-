@@ -349,3 +349,4 @@ code.secret { display: block; font-size: 1.25rem; padding: .8rem; background: va
 .stat b, .otp, .otp-input, td.num, .pct, .receipt dd, .ring .pct, .count, .kv dd, #closes { font-variant-numeric: tabular-nums; }
 .live-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; }
 .live-actions .btns { display: flex; gap: .5rem; }
+.preview-banner { background: #FBF1DF; color: #7A4C08; border-bottom: 1px solid #EFD5A6; padding: .55rem 1rem; text-align: center; font-size: .88rem; font-weight: 550; }

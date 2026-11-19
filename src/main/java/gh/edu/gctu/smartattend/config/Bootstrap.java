@@ -22,15 +22,59 @@ public class Bootstrap implements ApplicationRunner {
     private final Db db;
     private final AppProperties props;
     private final AuditService audit;
+    private final gh.edu.gctu.smartattend.admin.ImportService imports;
 
-    public Bootstrap(Db db, AppProperties props, AuditService audit) {
+    public Bootstrap(Db db, AppProperties props, AuditService audit, gh.edu.gctu.smartattend.admin.ImportService imports) {
         this.db = db;
         this.props = props;
         this.audit = audit;
+        this.imports = imports;
     }
 
     @Override
     public void run(ApplicationArguments args) {
+        createSuperAdmin();
+        seedRegisterInPreviewMode();
+    }
+
+    /**
+     * Preview mode only: the bundled database starts empty after every host restart, so the official class
+     * list is re-imported from the SMARTATTEND_SEED_REGISTER environment variable (base64 of the .xlsx or .csv,
+     * stored encrypted in the hosting platform, never in git). The register is left UNVERIFIED.
+     */
+    void seedRegisterInPreviewMode() {
+        String b64 = System.getenv("SMARTATTEND_SEED_REGISTER");
+        if (!gh.edu.gctu.smartattend.SmartAttendApplication.previewMode || b64 == null || b64.isBlank()) return;
+        Integer existing = db.scalar("SELECT count(*)::int FROM students", Integer.class);
+        if (existing != null && existing > 0) return;
+        try {
+            byte[] bytes = java.util.Base64.getDecoder().decode(b64.trim());
+            String name = bytes.length > 1 && bytes[0] == 'P' && bytes[1] == 'K' ? "register.xlsx" : "register.csv";
+            var parsed = imports.parse(name, bytes, null);
+            if (!parsed.fileErrors().isEmpty()) { log.warn("Seed register not imported: {}", parsed.fileErrors()); return; }
+            java.util.UUID group = db.scalar("SELECT id FROM class_groups ORDER BY created_at LIMIT 1", java.util.UUID.class);
+            java.util.Set<String> seen = new java.util.HashSet<>();
+            int n = 0;
+            for (var r : parsed.rows()) {
+                String idx = (String) r.get("indexNumber");
+                if (idx.isEmpty() || !seen.add(idx) || ((String) r.get("firstName")).isEmpty() || ((String) r.get("lastName")).isEmpty()) continue;
+                n += db.update("""
+                        INSERT INTO students(class_group_id, index_number, title, first_name, last_name, other_names)
+                        VALUES (:g, :i, NULLIF(:t, ''), :f, :l, NULLIF(:o, '')) ON CONFLICT (index_number) DO NOTHING""",
+                        "g", group, "i", idx, "t", r.get("title"), "f", r.get("firstName"), "l", r.get("lastName"), "o", r.get("otherNames"));
+            }
+            db.update("""
+                    INSERT INTO course_enrollments(course_id, student_id, semester_id)
+                    SELECT DISTINCT t.course_id, s.id, t.semester_id FROM students s JOIN class_timetables t ON t.class_group_id = s.class_group_id
+                    ON CONFLICT DO NOTHING""");
+            audit.logAs(null, "SYSTEM", "PREVIEW_REGISTER_SEEDED", "class_group", group, Json.obj("students", n));
+            log.info("Preview mode: seeded {} students from SMARTATTEND_SEED_REGISTER (register left unverified)", n);
+        } catch (Exception e) {
+            log.warn("Seed register failed: {}", e.getMessage());
+        }
+    }
+
+    void createSuperAdmin() {
         Integer count = db.scalar("SELECT count(*)::int FROM app_users WHERE role = 'SUPER_ADMIN'", Integer.class);
         if (count != null && count > 0) return;
         String email = props.bootstrapSuperAdminEmail();

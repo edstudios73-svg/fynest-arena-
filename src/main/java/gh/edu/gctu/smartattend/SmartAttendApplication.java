@@ -13,8 +13,12 @@ import java.nio.charset.StandardCharsets;
 @EnableScheduling
 @ConfigurationPropertiesScan
 public class SmartAttendApplication {
-    public static void main(String[] args) {
+    /** True when running on the bundled database (data is not permanent). */
+    public static volatile boolean previewMode = false;
+
+    public static void main(String[] args) throws Exception {
         adoptPlatformDatabaseUrl();
+        startBundledDatabaseIfNeeded();
         SpringApplication.run(SmartAttendApplication.class, args);
     }
 
@@ -37,6 +41,26 @@ public class SmartAttendApplication {
             System.setProperty("spring.datasource.username", URLDecoder.decode(ui[0], StandardCharsets.UTF_8));
             if (ui.length > 1) System.setProperty("spring.datasource.password", URLDecoder.decode(ui[1], StandardCharsets.UTF_8));
         }
+    }
+
+    /**
+     * Preview mode: with no DATABASE_URL and SMARTATTEND_EMBEDDED_DB=true, start a real PostgreSQL 16 inside
+     * this process. Its data lives on the container's temporary disk, so it is lost when the host restarts
+     * the container. Attach an external PostgreSQL (DATABASE_URL) for permanent data.
+     */
+    static void startBundledDatabaseIfNeeded() throws Exception {
+        if (firstNonBlank(System.getenv("DATABASE_URL"), System.getenv("POSTGRES_URL")) != null) return;
+        if (!"true".equalsIgnoreCase(System.getenv("SMARTATTEND_EMBEDDED_DB"))) return;
+        java.nio.file.Path dir = java.nio.file.Path.of(System.getProperty("java.io.tmpdir"), "smartattend-pg");
+        io.zonky.test.db.postgres.embedded.EmbeddedPostgres pg = io.zonky.test.db.postgres.embedded.EmbeddedPostgres.builder()
+                .setDataDirectory(dir).setCleanDataDirectory(false).setPort(54329)
+                .setOverrideWorkingDirectory(java.nio.file.Path.of(System.getProperty("java.io.tmpdir"), "smartattend-pg-bin").toFile())
+                .start();
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> { try { pg.close(); } catch (Exception ignored) { } }));
+        System.setProperty("spring.datasource.url", pg.getJdbcUrl("postgres", "postgres"));
+        System.setProperty("spring.datasource.username", "postgres");
+        System.setProperty("spring.datasource.password", "postgres");
+        previewMode = true;
     }
 
     private static String firstNonBlank(String... v) {

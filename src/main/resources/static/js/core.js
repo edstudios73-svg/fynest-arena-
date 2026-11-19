@@ -285,6 +285,23 @@
     SA.$("#markRead").addEventListener("click", async () => { await SA.api("/api/notifications/read", { method: "POST", body: {} }); SA.setUnread(0); SA.notificationsView(); });
   };
 
+  /** Preview-mode banner: tells everyone data is temporary when no permanent database is attached. */
+  SA.previewBanner = async function () {
+    try {
+      const st = await fetch("/api/public/status", { credentials: "same-origin" }).then((r) => r.json());
+      if (!st.previewMode || document.getElementById("previewBanner")) return;
+      const b = document.createElement("div");
+      b.id = "previewBanner";
+      b.className = "preview-banner";
+      b.setAttribute("role", "note");
+      b.textContent = "Preview mode: this demo runs on a temporary built-in database. Registrations and attendance are reset whenever the server restarts.";
+      document.body.prepend(b);
+    } catch (e) { /* offline */ }
+  };
+  const _shell = SA.shell;
+  SA.shell = function (o) { _shell(o); SA.previewBanner(); };
+  document.addEventListener("DOMContentLoaded", () => SA.previewBanner());
+
   /** Mobile menu toggle on public pages + service worker registration. */
   document.addEventListener("DOMContentLoaded", () => {
     const t = SA.$(".menu-toggle"), n = SA.$(".site-nav");
