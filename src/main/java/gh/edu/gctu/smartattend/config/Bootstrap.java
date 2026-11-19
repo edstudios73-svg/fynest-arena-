@@ -33,18 +33,23 @@ public class Bootstrap implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        createSuperAdmin();
-        seedRegisterInPreviewMode();
+        try {
+            createSuperAdmin();
+        } catch (org.springframework.dao.DuplicateKeyException raced) {
+            log.info("Super Administrator was created by another instance starting at the same time.");
+        }
+        seedRegisterIfEmpty();
     }
 
     /**
-     * Preview mode only: the bundled database starts empty after every host restart, so the official class
-     * list is re-imported from the SMARTATTEND_SEED_REGISTER environment variable (base64 of the .xlsx or .csv,
-     * stored encrypted in the hosting platform, never in git). The register is left UNVERIFIED.
+     * When the database has no students yet, import the official class list from the SMARTATTEND_SEED_REGISTER
+     * environment variable (base64 of the .xlsx or .csv, stored encrypted in the hosting platform, never in git).
+     * The register is left UNVERIFIED: an administrator must verify it before students can register.
+     * Safe if several instances start at once (inserts ignore duplicates).
      */
-    void seedRegisterInPreviewMode() {
+    void seedRegisterIfEmpty() {
         String b64 = System.getenv("SMARTATTEND_SEED_REGISTER");
-        if (!gh.edu.gctu.smartattend.SmartAttendApplication.previewMode || b64 == null || b64.isBlank()) return;
+        if (b64 == null || b64.isBlank()) return;
         Integer existing = db.scalar("SELECT count(*)::int FROM students", Integer.class);
         if (existing != null && existing > 0) return;
         try {
@@ -68,7 +73,7 @@ public class Bootstrap implements ApplicationRunner {
                     SELECT DISTINCT t.course_id, s.id, t.semester_id FROM students s JOIN class_timetables t ON t.class_group_id = s.class_group_id
                     ON CONFLICT DO NOTHING""");
             audit.logAs(null, "SYSTEM", "PREVIEW_REGISTER_SEEDED", "class_group", group, Json.obj("students", n));
-            log.info("Preview mode: seeded {} students from SMARTATTEND_SEED_REGISTER (register left unverified)", n);
+            log.info("Seeded {} students from SMARTATTEND_SEED_REGISTER (register left unverified)", n);
         } catch (Exception e) {
             log.warn("Seed register failed: {}", e.getMessage());
         }
