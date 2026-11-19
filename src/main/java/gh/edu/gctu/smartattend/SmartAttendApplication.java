@@ -29,7 +29,10 @@ public class SmartAttendApplication {
      * already a jdbc: URL is left untouched.
      */
     static void adoptPlatformDatabaseUrl() {
-        String url = firstNonBlank(System.getenv("DATABASE_URL"), System.getenv("POSTGRES_URL"));
+        // Prefer the direct (non-pooled) URL when the platform provides one (Neon/Vercel), because database
+        // migrations use session features that a transaction-mode connection pooler does not support.
+        String url = firstNonBlank(System.getenv("DATABASE_URL_UNPOOLED"), System.getenv("POSTGRES_URL_NON_POOLING"),
+                System.getenv("DATABASE_URL"), System.getenv("POSTGRES_URL"));
         if (url == null || url.startsWith("jdbc:")) return;
         if (!url.startsWith("postgres://") && !url.startsWith("postgresql://")) return;
         URI u = URI.create(url.replaceFirst("^postgres(ql)?://", "http://"));
@@ -50,7 +53,7 @@ public class SmartAttendApplication {
      * the container. Attach an external PostgreSQL (DATABASE_URL) for permanent data.
      */
     static void startBundledDatabaseIfNeeded() throws Exception {
-        if (firstNonBlank(System.getenv("DATABASE_URL"), System.getenv("POSTGRES_URL")) != null) return;
+        if (firstNonBlank(System.getenv("DATABASE_URL"), System.getenv("POSTGRES_URL"), System.getenv("DATABASE_URL_UNPOOLED")) != null) return;
         if (!"true".equalsIgnoreCase(System.getenv("SMARTATTEND_EMBEDDED_DB"))) return;
         // SMARTATTEND_DATA_DIR = a permanent disk (single always-on server): data is kept.
         // Without it the database lives on temporary storage and the site runs in preview mode.
