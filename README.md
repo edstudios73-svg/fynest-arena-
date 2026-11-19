@@ -114,6 +114,22 @@ mvn test                      # 50 JUnit tests against a real PostgreSQL (databa
   live session; a student signs in with a passkey (Chrome virtual authenticator) and marks attendance; the lecturer
   screen updates live; closing marks absentees. Screenshots go to `tests-e2e/screens/`.
 
+## Recommended hosting: Render (one server + permanent disk)
+
+`render.yaml` defines one always-on server with a 1 GB permanent disk. The built-in PostgreSQL stores its data on
+that disk, so nothing is lost on restarts or redeploys and every request sees the same data. No external database
+service is needed.
+
+1. Sign in at https://dashboard.render.com and connect GitHub (allow access to `edstudios73-svg/fynest-arena-`).
+2. **New → Blueprint** → choose the repo → branch `claude/peaceful-johnson-wi1vxl` → **Apply**. Render reads
+   `render.yaml`, generates the encryption keys and a one-time admin password, and builds the Docker image (~5 min).
+3. Open the service → **Environment** → copy `SMARTATTEND_SUPERADMIN_PASSWORD` (and keep a backup of
+   `SMARTATTEND_BIOMETRIC_KEY`).
+4. Visit `https://<service>.onrender.com/admin-login.html`, sign in as `admin@smartattend.gctu`, set a new password,
+   then **Class register & import** → upload `DIPLOMA IN COMPUTER SCIENCE GROUPS.xlsx` → **Verify register**.
+
+A permanent disk requires a paid Render instance (Starter). Run exactly one instance.
+
 ## Live deployment (Vercel)
 
 Live at **https://smartattend-gctu.vercel.app** — Vercel project `smartattend-gctu` (team Mcdan), built from the root

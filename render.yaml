@@ -1,0 +1,31 @@
+# Render Blueprint: one always-on SmartAttend server with a permanent disk.
+# The built-in PostgreSQL keeps its data on the disk, so sign-ins, registrations,
+# locked faces and attendance survive restarts and redeploys. No external database needed.
+services:
+  - type: web
+    name: smartattend-gctu
+    runtime: docker
+    repo: https://github.com/edstudios73-svg/fynest-arena-
+    branch: claude/peaceful-johnson-wi1vxl
+    dockerfilePath: ./Dockerfile
+    region: frankfurt
+    plan: starter            # a permanent disk needs a paid instance (free instances have no disk)
+    numInstances: 1          # one copy of the app = one shared database
+    healthCheckPath: /api/public/status
+    disk:
+      name: smartattend-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: SMARTATTEND_EMBEDDED_DB
+        value: "true"
+      - key: SMARTATTEND_DATA_DIR
+        value: /var/data
+      - key: SMARTATTEND_BIOMETRIC_KEY   # encrypts face templates: back it up from the Render dashboard
+        generateValue: true
+      - key: SMARTATTEND_HMAC_KEY
+        generateValue: true
+      - key: SMARTATTEND_SUPERADMIN_EMAIL
+        value: admin@smartattend.gctu
+      - key: SMARTATTEND_SUPERADMIN_PASSWORD   # one-time; shown in Render → Environment; change it at first sign-in
+        generateValue: true

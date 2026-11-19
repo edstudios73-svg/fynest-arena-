@@ -17,6 +17,7 @@ public class SmartAttendApplication {
     public static volatile boolean previewMode = false;
 
     public static void main(String[] args) throws Exception {
+        adoptPlatformPublicUrl();
         adoptPlatformDatabaseUrl();
         startBundledDatabaseIfNeeded();
         SpringApplication.run(SmartAttendApplication.class, args);
@@ -51,16 +52,32 @@ public class SmartAttendApplication {
     static void startBundledDatabaseIfNeeded() throws Exception {
         if (firstNonBlank(System.getenv("DATABASE_URL"), System.getenv("POSTGRES_URL")) != null) return;
         if (!"true".equalsIgnoreCase(System.getenv("SMARTATTEND_EMBEDDED_DB"))) return;
-        java.nio.file.Path dir = java.nio.file.Path.of(System.getProperty("java.io.tmpdir"), "smartattend-pg");
+        // SMARTATTEND_DATA_DIR = a permanent disk (single always-on server): data is kept.
+        // Without it the database lives on temporary storage and the site runs in preview mode.
+        String persistentDir = firstNonBlank(System.getenv("SMARTATTEND_DATA_DIR"));
+        java.nio.file.Path base = persistentDir != null ? java.nio.file.Path.of(persistentDir) : java.nio.file.Path.of(System.getProperty("java.io.tmpdir"));
+        java.nio.file.Files.createDirectories(base);
+        java.nio.file.Path dir = base.resolve("smartattend-pg");
         io.zonky.test.db.postgres.embedded.EmbeddedPostgres pg = io.zonky.test.db.postgres.embedded.EmbeddedPostgres.builder()
                 .setDataDirectory(dir).setCleanDataDirectory(false).setPort(54329)
                 .setOverrideWorkingDirectory(java.nio.file.Path.of(System.getProperty("java.io.tmpdir"), "smartattend-pg-bin").toFile())
+                .setPGStartupWait(java.time.Duration.ofSeconds(60))
                 .start();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> { try { pg.close(); } catch (Exception ignored) { } }));
         System.setProperty("spring.datasource.url", pg.getJdbcUrl("postgres", "postgres"));
         System.setProperty("spring.datasource.username", "postgres");
         System.setProperty("spring.datasource.password", "postgres");
-        previewMode = true;
+        previewMode = persistentDir == null;
+    }
+
+    /** Use the host's public URL (e.g. Render's RENDER_EXTERNAL_URL) when SMARTATTEND_BASE_URL is not set. */
+    static void adoptPlatformPublicUrl() {
+        if (firstNonBlank(System.getenv("SMARTATTEND_BASE_URL")) != null) return;
+        String url = firstNonBlank(System.getenv("RENDER_EXTERNAL_URL"), System.getenv("PUBLIC_URL"));
+        if (url == null) return;
+        url = url.replaceAll("/$", "");
+        System.setProperty("smartattend.base-url", url);
+        if (firstNonBlank(System.getenv("SMARTATTEND_RP_ID")) == null) System.setProperty("smartattend.rp-id", URI.create(url).getHost());
     }
 
     private static String firstNonBlank(String... v) {
