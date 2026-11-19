@@ -228,6 +228,20 @@ public class FaceService {
         audit.log("BIOMETRIC_DELETED", "student", studentId, Json.obj("reason", reason));
     }
 
+    /** Retention policy: erase templates whose retention date has passed (runs daily and at startup). */
+    @org.springframework.scheduling.annotation.Scheduled(initialDelay = 60_000, fixedDelay = 86_400_000)
+    public void enforceRetention() {
+        for (var r : db.list("SELECT student_id FROM biometric_enrollments WHERE status IN ('ACTIVE','REVOKED') AND retention_until < CURRENT_DATE")) {
+            db.update("""
+                    UPDATE biometric_enrollments SET status = 'DELETED', revoked_at = now(),
+                        template_ciphertext = '\\x00'::bytea, template_iv = '\\x00'::bytea
+                    WHERE student_id = :s AND status IN ('ACTIVE','REVOKED') AND retention_until < CURRENT_DATE""", "s", r.get("studentId"));
+            audit.logAs(null, "SYSTEM", "BIOMETRIC_RETENTION_EXPIRED", "student", r.get("studentId"), Json.obj());
+        }
+        // Revoked (superseded) templates are not needed for verification: erase their ciphertext.
+        db.update("UPDATE biometric_enrollments SET status = 'DELETED', template_ciphertext = '\\x00'::bytea, template_iv = '\\x00'::bytea WHERE status = 'REVOKED'");
+    }
+
     private static boolean isImage(byte[] b) {
         boolean jpeg = (b[0] & 0xFF) == 0xFF && (b[1] & 0xFF) == 0xD8;
         boolean png = (b[0] & 0xFF) == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G';

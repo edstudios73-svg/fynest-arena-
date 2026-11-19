@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Privacy notice · SmartAttend</title>
+<meta name="description" content="How SmartAttend handles your personal and biometric data.">
+<meta name="theme-color" content="#0F2A55">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/img/logo.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/img/icon-192.png">
+<link rel="preload" href="/fonts/schibsted-grotesk-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/css/app.css">
+<script src="/js/core.js" defer></script>
+</head>
+<body>
+<header class="site-head"><div class="inner">
+  <a class="brand" href="/"><img src="/img/logo.svg" alt=""><span>SmartAttend<span class="inst">Ghana Communication Technology University</span></span></a>
+  <button class="btn ghost sm menu-toggle" type="button" aria-expanded="false" aria-controls="siteNav">Menu</button>
+  <nav class="site-nav" id="siteNav" aria-label="Site">
+    <a href="/how-it-works.html">How it works</a>
+    <a href="/about.html">About</a>
+    <a href="/privacy.html">Privacy</a>
+    <a href="/lecturer-login.html">Lecturers</a>
+    <a href="/admin-login.html">Administrators</a>
+    <a class="btn sm" href="/login.html">Student sign in</a>
+  </nav>
+</div></header>
+
+<main class="page"><div class="wrap narrow prose">
+  <h1>Privacy notice</h1>
+  <p class="muted">Version 2026-11-v1 · Applies to the GCTU SmartAttend pilot. Prepared with Ghana's Data Protection Act, 2012 (Act 843) in mind.</p>
+  <h2>Who is responsible</h2>
+  <p>Ghana Communication Technology University, Department of Computer Science, operates SmartAttend to record class attendance.</p>
+  <h2>What we collect and why</h2>
+  <ul>
+    <li><b>Register details</b> — index number, title and names from the official class register, to confirm who you are.</li>
+    <li><b>Face template</b> — a 128-number mathematical description of your face, made from a live capture at enrolment. It is used only to check that the person marking attendance is you. Camera frames are analysed in memory and deleted immediately; photos are not stored.</li>
+    <li><b>Passkey public key</b> — created by your phone. Your fingerprint or Face ID stays on your phone; we never receive it.</li>
+    <li><b>Attendance records</b> — course, date, time, status and the checks that passed.</li>
+    <li><b>Security evidence</b> — device identifier cookie, IP address, and location if you allow it, used only to detect misuse such as one phone signing in for several students.</li>
+  </ul>
+  <h2>What we don't do</h2>
+  <ul>
+    <li>We don't use your face template for anything except attendance verification at GCTU.</li>
+    <li>We don't search other databases or identify you in other photos.</li>
+    <li>We don't sell or share your data with advertisers.</li>
+  </ul>
+  <h2>How it is protected</h2>
+  <ul>
+    <li>Face templates are encrypted with AES-256-GCM; administrators can see only whether you're enrolled, never the template.</li>
+    <li>Connections use HTTPS. Data is encrypted in transit and the server encrypts biometric data at rest. The server must read attendance data to validate it, so this is not end-to-end encryption.</li>
+    <li>Every administrative change is written to an audit log that cannot be edited.</li>
+  </ul>
+  <h2>How long we keep it</h2>
+  <p>Face templates are kept for the length of your programme (default 730 days) and then deleted. Attendance records follow the university's academic records policy.</p>
+  <h2>Your choices</h2>
+  <ul>
+    <li>You can decline the face check and ask for supervised verification; your lecturer can then record your attendance in person.</li>
+    <li>You can ask the department to correct your register details or delete your face template.</li>
+    <li>A failed face check never permanently locks you out — a lecturer or administrator can verify you in person.</li>
+  </ul>
+  <h2>Contact</h2>
+  <p>Contact the Department of Computer Science office for questions or requests about your data.</p>
+</div></main>
+<footer class="site-foot"><div class="wrap">
+  <span>SmartAttend · Department of Computer Science, Ghana Communication Technology University</span>
+  <span><a href="/privacy.html">Privacy notice</a> · <a href="/how-it-works.html">How it works</a></span>
+</div></footer>
+</body>
+</html>
