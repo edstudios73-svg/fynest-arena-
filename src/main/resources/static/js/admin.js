@@ -18,32 +18,24 @@
     SA.shell({
       me, home: "#/", cls: "staff",
       nav: [
-        { key: "home", href: "#/", label: "Overview", icon: "home" },
-        { group: "People" },
-        { key: "register", href: "#/register", label: "Class register & import", icon: "upload" },
+        { key: "home", href: "#/", label: "Home", icon: "home" },
+        { key: "courses", href: "#/courses", label: "Classes", icon: "play" },
         { key: "students", href: "#/students", label: "Students", icon: "users" },
-        { key: "lecturers", href: "#/lecturers", label: "Lecturers", icon: "user" },
-        { group: "Teaching" },
-        { key: "courses", href: "#/courses", label: "Courses", icon: "book" },
-        { key: "timetable", href: "#/timetable", label: "Timetable & calendar", icon: "calendar" },
-        { key: "venues", href: "#/venues", label: "Venues & proximity", icon: "building" },
-        { key: "sessions", href: "#/sessions", label: "Attendance sessions", icon: "play" },
-        { key: "analytics", href: "#/analytics", label: "Analytics", icon: "chart" },
+        { key: "register", href: "#/register", label: "Class list", icon: "upload" },
         { key: "reports", href: "#/reports", label: "Reports", icon: "file" },
-        { group: "Security" },
-        { key: "security", href: "#/security", label: "Fraud alerts", icon: "alert" },
-        { key: "recovery", href: "#/recovery", label: "Recovery requests", icon: "key" },
-        { key: "devices", href: "#/devices", label: "Devices", icon: "phone" },
-        { key: "audit", href: "#/audit", label: "Audit log", icon: "log" },
-        { key: "settings", href: "#/settings", label: "Policies & settings", icon: "settings" },
-      ].concat(sup ? [{ group: "Platform" }, { key: "structure", href: "#/structure", label: "Institutions & structure", icon: "building" },
-        { key: "admins", href: "#/admins", label: "Administrators", icon: "shield" }] : [])
-        .concat([{ key: "account", href: "#/account", label: "My account", icon: "user" }]),
-      tabs: [
-        { key: "home", href: "#/", label: "Overview", icon: "home" },
-        { key: "students", href: "#/students", label: "Students", icon: "users" },
-        { key: "sessions", href: "#/sessions", label: "Sessions", icon: "play" },
+        { key: "settings", href: "#/settings", label: "Settings", icon: "settings" },
+        { group: "More" },
+        { key: "sessions", href: "#/sessions", label: "Past classes", icon: "list" },
+        { key: "analytics", href: "#/analytics", label: "Analytics", icon: "chart" },
+        { key: "timetable", href: "#/timetable", label: "Timetable", icon: "calendar" },
         { key: "security", href: "#/security", label: "Alerts", icon: "alert" },
+        { key: "audit", href: "#/audit", label: "Audit log", icon: "log" },
+        { key: "account", href: "#/account", label: "My account", icon: "user" },
+      ],
+      tabs: [
+        { key: "home", href: "#/", label: "Home", icon: "home" },
+        { key: "courses", href: "#/courses", label: "Classes", icon: "play" },
+        { key: "students", href: "#/students", label: "Students", icon: "users" },
         { key: "settings", href: "#/menu", label: "More", icon: "list" },
       ],
     });
@@ -54,7 +46,8 @@
       SA.route("/students", students, { key: "students" }),
       SA.route("/students/:id", student, { key: "students" }),
       SA.route("/lecturers", lecturers, { key: "lecturers" }),
-      SA.route("/courses", courses, { key: "courses" }),
+      SA.route("/courses", classes, { key: "courses" }),
+      SA.route("/courses/manage", courses, { key: "courses" }),
       SA.route("/courses/:id", (a, p) => ST().course(a, p), { key: "courses" }),
       SA.route("/live/:id", (a) => ST().live(a), { key: "sessions" }),
       SA.route("/sessions/:id", (a) => ST().session(a), { key: "sessions" }),
@@ -74,6 +67,16 @@
       SA.route("/account", () => ST().account(), { key: "account" }),
     ], (r) => { SA.markNav(r.key); ST().cleanup(); });
   });
+
+  async function classes() {
+    SA.loading();
+    const o = await api("/api/lecturer/overview");
+    const v = SA.view("Classes", `<div class="course-list">${o.courses.map((c) => `<div class="course-row">
+        <span><b>${esc(c.title)}</b><small>${esc(c.code || "")} · ${c.enrolled} students</small></span>
+        ${c.openSessionId ? `<a class="btn sm" href="#/live/${esc(c.openSessionId)}">Open</a>` : `<button class="btn sm" type="button" data-start="${esc(c.id)}">Start</button>`}</div>`).join("")}</div>
+      <p class="small muted center"><a href="#/courses/manage">Edit courses</a></p>`);
+    $$("[data-start]", v).forEach((b) => b.addEventListener("click", () => ST().startDialog(b.dataset.start)));
+  }
 
   function menu() {
     SA.view("More", `<div class="choice">${SA.$$(".sidebar nav a").map((a) => `<a class="btn secondary block" href="${esc(a.getAttribute("href"))}">${esc(a.textContent.trim())}</a>`).join("")}</div>`);

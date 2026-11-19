@@ -29,66 +29,15 @@
 <script src="/js/core.js" defer></script>
 </head>
 <body>
-<header class="site-head"><div class="inner">
-  <a class="brand" href="/"><img src="/img/logo.svg" alt=""><span>SmartAttend<span class="inst">Ghana Communication Technology University</span></span></a>
-  <button class="btn ghost sm menu-toggle" type="button" aria-expanded="false" aria-controls="siteNav">Menu</button>
-  <nav class="site-nav" id="siteNav" aria-label="Site">
-    <a href="/how-it-works.html">How it works</a>
-    <a href="/about.html">About</a>
-    <a href="/privacy.html">Privacy</a>
-    <a href="/lecturer-login.html">Lecturers</a>
-    <a href="/admin-login.html">Administrators</a>
-    <a class="btn sm" href="/login.html">Student sign in</a>
-  </nav>
-</div></header>
-
-<main>
-<section class="hero"><div class="wrap">
-  <div>
-    <h1>Attendance that only you can mark.</h1>
-    <p class="lede">SmartAttend replaces the paper register for the Diploma in Computer Science, Level 100. Scan the code on your lecturer's screen, confirm it's really you, and you're marked present.</p>
-    <div class="actions">
-      <a class="btn lg" href="/login.html">Sign in with your index number</a>
-      <a class="btn lg secondary" href="/register.html">First time? Register</a>
-    </div>
-    <p class="small muted">Lecturers and staff: <a href="/lecturer-login.html">lecturer sign in</a> · <a href="/admin-login.html">administrator sign in</a></p>
+<main class="home">
+  <img class="home-logo" src="/img/logo.svg" alt="">
+  <h1>SmartAttend</h1>
+  <p class="muted">GCTU class attendance</p>
+  <div class="home-actions">
+    <a class="btn lg block" href="/login.html">Sign in</a>
+    <a class="btn lg block secondary" href="/register.html">Register</a>
   </div>
-  <div class="pass" aria-label="Example attendance pass">
-    <div class="pass-top"><span>Attendance open</span><img src="/img/logo.svg" alt=""></div>
-    <div class="course">Introduction to Computer Systems</div>
-    <div class="code">CIIS 115 · Room D3B</div>
-    <div class="otp" aria-label="Example code">482 913</div>
-    <div class="timer"><i></i></div>
-    <div class="pass-bottom"><div>New code every<b>60 seconds</b></div><div>Checks<b>Code · Face · Device</b></div></div>
-  </div>
-</div></section>
-
-<section class="band"><div class="wrap">
-  <h2>Marking attendance takes four steps</h2>
-  <ol class="steps">
-    <li><div><h3>Your lecturer opens attendance</h3><p>A six-digit code and QR code appear on the classroom screen. Both change every minute.</p></div></li>
-    <li><div><h3>You scan the QR or type the code</h3><p>Use your phone's camera or the SmartAttend app. A code from another course or an expired code is refused.</p></div></li>
-    <li><div><h3>You prove it's you</h3><p>A short live face check, then your phone's fingerprint, Face ID or screen lock.</p></div></li>
-    <li><div><h3>You get a receipt</h3><p>Only after the server saves your record do you see "Present" with a reference number.</p></div></li>
-  </ol>
-</div></section>
-
-<section class="band white"><div class="wrap">
-  <h2>Why a classmate can't sign for you</h2>
-  <p class="muted">Each check covers a different trick. All of them are verified on the server, never just on the phone.</p>
-  <div class="layers">
-    <div class="panel"><h3>Official register</h3><p>Accounts can only be created for index numbers on the department's verified class list — one account per index number.</p></div>
-    <div class="panel"><h3>Live face check</h3><p>You turn your head in a random order. A photo, a screenshot or a recorded video can't follow new instructions.</p></div>
-    <div class="panel"><h3>Your own phone</h3><p>A passkey tied to your registered phone. Another student's phone can't sign for your account.</p></div>
-    <div class="panel"><h3>Rotating codes</h3><p>Codes last 60 seconds and belong to one class session, so a code sent over WhatsApp expires before it's useful.</p></div>
-    <div class="panel"><h3>Classroom evidence</h3><p>Classroom network and location are recorded as supporting evidence. Unusual results go to a lecturer for review, not automatic punishment.</p></div>
-    <div class="panel"><h3>Human review</h3><p>Lost phone, failed camera, wrong record? Lecturers and administrators can verify you in person and correct records, with every change logged.</p></div>
-  </div>
-</div></section>
 </main>
-<footer class="site-foot"><div class="wrap">
-  <span>SmartAttend · Department of Computer Science, Ghana Communication Technology University</span>
-  <span><a href="/privacy.html">Privacy notice</a> · <a href="/how-it-works.html">How it works</a></span>
-</div></footer>
+<footer class="home-foot"><a href="/privacy.html">Privacy</a> · <a href="/admin-login.html">Admin</a></footer>
 </body>
 </html>

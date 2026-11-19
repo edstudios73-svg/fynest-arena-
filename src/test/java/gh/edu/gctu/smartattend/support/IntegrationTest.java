@@ -72,6 +72,11 @@ public abstract class IntegrationTest {
         resetSetting("security.faceOnAttendance", "true");
         resetSetting("security.passkeyOnAttendance", "true");
         resetSetting("proximity.defaultPolicy", "EVIDENCE");
+        resetSetting("security.passkeyOnLogin", "true");
+        resetSetting("security.faceOnCheckout", "true");
+        resetSetting("attendance.checkoutMinutes", "0");
+        resetSetting("attendance.classMinutes", "20");
+        resetSetting("attendance.geofenceMeters", "50");
         resetSetting("attendance.lateAfterMinutes", "15");
         settings.clearCache();
         limiter.reset();
@@ -143,8 +148,12 @@ public abstract class IntegrationTest {
         JsonNode ch = expectOk(c.post("/api/auth/student/register/face/challenge", null)).json();
         JsonNode face = expectOk(faceUpload(c, "/api/auth/student/register/face", ch, person, null)).json();
         assertEquals(true, face.path("passed").asBoolean(), face.toString());
-        JsonNode opts = expectOk(c.post("/api/auth/student/register/passkey/options", null)).json();
         SoftwareAuthenticator a = new SoftwareAuthenticator(ORIGIN, "localhost");
+        if (face.path("registered").asBoolean()) {
+            c.refresh();
+            return new Student(c, a, index, person);
+        }
+        JsonNode opts = expectOk(c.post("/api/auth/student/register/passkey/options", null)).json();
         try {
             expectOk(c.post("/api/auth/student/register/passkey/verify", a.create(opts)));
         } catch (Exception e) { throw new RuntimeException(e); }

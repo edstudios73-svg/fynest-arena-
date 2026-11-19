@@ -121,12 +121,42 @@ public class StudentAuthController {
 
     @PostMapping(value = "/register/face", consumes = "multipart/form-data")
     public Map<String, Object> registerFace(@RequestParam UUID challengeId, @RequestParam("frames") List<MultipartFile> frames,
-                                            HttpServletRequest req) throws IOException {
+                                            HttpServletRequest req, HttpServletResponse res) throws IOException {
         var f = flows.require(req, "REGISTRATION", "FACE");
         var out = face.verify((UUID) f.get("studentId"), challengeId, "ENROL", bytes(frames));
         if (!out.passed()) return Json.obj("passed", false, "reason", out.failure(), "message", out.message());
         db.update("UPDATE auth_flows SET face_passed_at = now(), stage = 'PASSKEY' WHERE id = :id", "id", f.get("id"));
+        if (!settings.getBool("security.passkeyOnLogin")) {
+            return finishRegistration(f, null, null, req, res);
+        }
         return Json.obj("passed", true, "next", "PASSKEY");
+    }
+
+    /** Create/activate the student account after the required checks, and sign the student in. */
+    @Transactional
+    Map<String, Object> finishRegistration(Map<String, Object> f, byte[] challenge, String credentialJson,
+                                           HttpServletRequest req, HttpServletResponse res) {
+        UUID studentId = (UUID) f.get("studentId");
+        Map<String, Object> s = db.one("SELECT s.*, u.status AS account_status FROM students s LEFT JOIN app_users u ON u.id = s.user_id WHERE s.id = :id FOR UPDATE OF s", "id", studentId);
+        UUID userId = (UUID) s.get("userId");
+        if (userId == null) {
+            userId = db.insertReturningId("INSERT INTO app_users(role, status) VALUES ('STUDENT', 'DISABLED') RETURNING id");
+            db.update("UPDATE students SET user_id = :u, updated_at = now() WHERE id = :s", "u", userId, "s", studentId);
+        } else if (!"DISABLED".equals(s.get("accountStatus"))) {
+            throw ApiException.conflict("ALREADY_REGISTERED", "This index number is already registered.");
+        }
+        if (!face.hasTemplate(studentId)) throw ApiException.badRequest("FLOW_STEP", "Face enrolment missing.");
+        UUID deviceId = devices.upsert(userId, devices.cookieHash(req, res), req);
+        if (credentialJson != null) webauthn.register(userId, deviceId, challenge, credentialJson, "Registered device");
+        boolean approval = settings.getBool("security.registrationRequiresApproval");
+        String status = approval ? "PENDING_APPROVAL" : "ACTIVE";
+        db.update("UPDATE app_users SET status = :st WHERE id = :u", "st", status, "u", userId);
+        flows.complete((UUID) f.get("id"), res);
+        audit.logAs(userId, "STUDENT", "STUDENT_REGISTERED", "student", studentId, Json.obj("status", status));
+        sharedDeviceCheck(studentId, deviceId, req);
+        if (approval) notifications.notifyAdmins("New student registration", "A student is awaiting approval.", "/admin.html#/students?status=PENDING_APPROVAL");
+        sessions.create(userId, deviceId, req, res);
+        return Json.obj("passed", true, "registered", true, "status", status);
     }
 
     @PostMapping("/register/passkey/options")
@@ -148,32 +178,11 @@ public class StudentAuthController {
     }
 
     @PostMapping("/register/passkey/verify")
-    @Transactional
     public Map<String, Object> registerPasskeyVerify(@RequestBody JsonNode credential, HttpServletRequest req, HttpServletResponse res) {
         var f = flows.require(req, "REGISTRATION", "PASSKEY");
         if (f.get("facePassedAt") == null || f.get("webauthnChallenge") == null) throw ApiException.badRequest("FLOW_STEP", "Complete face enrolment first.");
-        UUID studentId = (UUID) f.get("studentId");
-        UUID userId = db.scalar("SELECT user_id FROM students WHERE id = :s", UUID.class, "s", studentId);
-        // Single-use challenge
         db.update("UPDATE auth_flows SET webauthn_challenge = NULL WHERE id = :id", "id", f.get("id"));
-        UUID deviceId = devices.upsert(userId, devices.cookieHash(req, res), req);
-        webauthn.register(userId, deviceId, (byte[]) f.get("webauthnChallenge"), credential.toString(), "Registered device");
-        if (!face.hasTemplate(studentId)) throw ApiException.badRequest("FLOW_STEP", "Face enrolment missing.");
-
-        boolean approval = settings.getBool("security.registrationRequiresApproval");
-        String status = approval ? "PENDING_APPROVAL" : "ACTIVE";
-        db.update("UPDATE app_users SET status = :st WHERE id = :u", "st", status, "u", userId);
-        flows.complete((UUID) f.get("id"), res);
-        audit.logAs(userId, "STUDENT", "STUDENT_REGISTERED", "student", studentId, Json.obj("status", status));
-        sharedDeviceCheck(studentId, deviceId, req);
-        if (approval) {
-            notifications.notifyAdmins("New student registration", "A student completed registration and is awaiting approval.", "/admin.html#/students?status=PENDING_APPROVAL");
-        }
-        notifications.notify(userId, "Welcome to SmartAttend", approval
-                ? "Your registration is complete and awaiting verification by the department."
-                : "Your account is active. You can now mark attendance.", "/student.html");
-        sessions.create(userId, deviceId, req, res);
-        return Json.obj("registered", true, "status", status);
+        return finishRegistration(f, (byte[]) f.get("webauthnChallenge"), credential.toString(), req, res);
     }
 
     /** For students whose device cannot create a passkey or who decline biometrics. */
@@ -202,11 +211,17 @@ public class StudentAuthController {
             throw ApiException.forbidden("This account is suspended. Please contact the department.");
         }
         checkLock((UUID) s.get("userId"));
+        if (!settings.getBool("security.passkeyOnLogin")) {
+            // Index number + live face check (the face check is mandatory in this mode).
+            flows.start("LOGIN", (UUID) s.get("id"), "FACE", res);
+            devices.cookieHash(req, res);
+            return Json.obj("next", "FACE", "faceRequired", true);
+        }
         UUID flowId = flows.start("LOGIN", (UUID) s.get("id"), "PASSKEY", res);
         byte[] challenge = Crypto.randomBytes(32);
         db.update("UPDATE auth_flows SET webauthn_challenge = :c WHERE id = :id", "c", challenge, "id", flowId);
         devices.cookieHash(req, res);
-        return Json.obj("publicKey", webauthn.requestOptions((UUID) s.get("userId"), challenge), "faceRequired", settings.getBool("security.faceOnLogin"));
+        return Json.obj("next", "PASSKEY", "publicKey", webauthn.requestOptions((UUID) s.get("userId"), challenge), "faceRequired", settings.getBool("security.faceOnLogin"));
     }
 
     @PostMapping("/login/passkey")
@@ -259,6 +274,7 @@ public class StudentAuthController {
         if (enrol && f.get("consentAt") == null) throw ApiException.badRequest("CONSENT_REQUIRED", "Biometric consent is required.");
         var out = face.verify((UUID) f.get("studentId"), challengeId, enrol ? "ENROL" : "LOGIN", bytes(frames));
         if (!out.passed()) {
+            if (!enrol) recordLoginFailure((UUID) f.get("userId"));
             audit.logAs((UUID) f.get("userId"), "STUDENT", "LOGIN_FACE_FAILED", "student", f.get("studentId"), Json.obj("reason", out.failure()));
             return Json.obj("passed", false, "reason", out.failure(), "message", out.message());
         }

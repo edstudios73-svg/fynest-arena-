@@ -136,6 +136,7 @@ public class LecturerController {
         Map<String, Object> s = access.requireSession(u, id);
         Map<String, Object> info = db.one("""
                 SELECT s.id, s.status, s.mode, s.session_date, s.opened_at, s.closes_at, s.closed_at, s.late_after_minutes,
+                       s.ends_at, s.checkout_minutes, s.geofence_m, s.anchor_at,
                        s.require_face, s.require_passkey, s.proximity_policy, s.notes, c.id AS course_id, c.code AS course_code,
                        c.title AS course_title, v.code AS venue, g.name AS group_name
                 FROM attendance_sessions s JOIN courses c ON c.id = s.course_id LEFT JOIN venues v ON v.id = s.venue_id
@@ -150,7 +151,7 @@ public class LecturerController {
                 FROM attendance_records r JOIN students st ON st.id = r.student_id WHERE r.session_id = :s ORDER BY r.submitted_at DESC""", "s", id);
         for (var r : records) r.put("name", gh.edu.gctu.smartattend.student.StudentDirectory.fullName(r));
         Map<String, Long> counts = new LinkedHashMap<>();
-        for (String k : List.of("PRESENT", "LATE", "PENDING_VERIFICATION", "ABSENT", "EXCUSED", "REJECTED")) counts.put(k, 0L);
+        for (String k : List.of("CHECKED_IN", "PRESENT", "LATE", "PENDING_VERIFICATION", "ABSENT", "EXCUSED", "REJECTED")) counts.put(k, 0L);
         for (var r : records) counts.merge((String) r.get("status"), 1L, Long::sum);
         List<Map<String, Object>> failures = db.list("""
                 SELECT e.event_type, e.created_at, e.detail, st.index_number, st.first_name, st.last_name, st.other_names
@@ -183,6 +184,13 @@ public class LecturerController {
     public SseEmitter stream(@PathVariable UUID id) {
         access.requireSession(AuthContext.require(), id);
         return live.subscribe(id);
+    }
+
+    public record LocationBody(Double latitude, Double longitude, Double accuracy) {}
+
+    @PostMapping("/sessions/{id}/anchor")
+    public Map<String, Object> anchor(@PathVariable UUID id, @RequestBody LocationBody b) {
+        return attendance.updateAnchor(AuthContext.require(), id, new PresenceService.Gps(b.latitude(), b.longitude(), b.accuracy()));
     }
 
     @PostMapping("/sessions/{id}/close")

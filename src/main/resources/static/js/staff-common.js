@@ -72,23 +72,34 @@
     if ($("#startBtn", v)) $("#startBtn", v).addEventListener("click", () => ST.startDialog(id, c));
   };
 
+  ST.position = () => new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new SA.ApiError(0, "NO_GPS", "This device can't share its location."));
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }),
+      (e) => reject(new SA.ApiError(0, "GPS", e.code === 1 ? "Allow location for this site to start a class." : "Couldn't get this device's location.")),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  });
+
   ST.startDialog = async function (courseId, info) {
     const c = info || (await api("/api/lecturer/courses/" + courseId));
-    const d = c.defaults, today = c.today;
-    const fields = [
-      { name: "durationMinutes", label: "Keep attendance open for (minutes)", type: "number", value: d.durationMinutes, required: true },
-      { name: "lateAfterMinutes", label: "Mark as late after (minutes)", type: "number", value: d.lateAfterMinutes, required: true },
-      { name: "mode", label: "Lecture mode", type: "select", value: today ? today.mode : "IN_PERSON", options: [{ value: "IN_PERSON", label: "In person" + (today && today.venue && today.mode !== "ONLINE" ? " (" + today.venue + ")" : "") }, { value: "ONLINE", label: "Online — no classroom check" }] },
-      { name: "proximityPolicy", label: "Classroom check", type: "select", value: d.proximityPolicy, options: [
-        { value: "EVIDENCE", label: "Record evidence, flag mismatches for review (recommended)" },
-        { value: "STRICT", label: "Require classroom network or location" },
-        { value: "NONE", label: "No classroom check" }] },
-      { name: "notes", label: "Note (optional)", type: "text" },
-    ];
-    const r = await SA.formDialog({ title: "Start attendance", intro: `${c.course.code || ""} ${c.course.title} · ${SA.date(new Date().toISOString())}. Students verify with the rotating code, a face check and their registered phone.`, fields, submit: "Start attendance" });
+    const today = c.today;
+    let mins = 120;
+    if (today && today.startTime && today.endTime) {
+      const [h1, m1] = today.startTime.split(":").map(Number), [h2, m2] = today.endTime.split(":").map(Number);
+      mins = (h2 * 60 + m2) - (h1 * 60 + m1);
+    }
+    const r = await SA.formDialog({ title: "Start class", intro: (c.course.code ? c.course.code + " · " : "") + c.course.title, fields: [
+      { name: "classMinutes", label: "Class length (minutes)", type: "number", value: mins, required: true },
+      { name: "geofenceMeters", label: "Students must be within (metres)", type: "number", value: 50, required: true },
+      { name: "checkoutMinutes", label: "End-of-class confirm window (minutes)", type: "number", value: 10, required: true },
+      { name: "online", type: "checkbox", label: "Online class (no location check)", value: today && today.mode === "ONLINE" },
+    ], submit: "Start" });
     if (!r) return;
     await busy(null, async () => {
-      const s = await api("/api/lecturer/sessions", { method: "POST", body: { courseId, durationMinutes: Number(r.durationMinutes), lateAfterMinutes: Number(r.lateAfterMinutes), mode: r.mode, proximityPolicy: r.proximityPolicy, notes: r.notes } });
+      const body = { courseId, classMinutes: Number(r.classMinutes), geofenceMeters: Number(r.geofenceMeters), checkoutMinutes: Number(r.checkoutMinutes) };
+      if (r.online) Object.assign(body, { mode: "ONLINE", proximityPolicy: "NONE" });
+      else Object.assign(body, { mode: "IN_PERSON", proximityPolicy: "GEOFENCE" }, await ST.position());
+      const s = await api("/api/lecturer/sessions", { method: "POST", body });
       location.hash = "#/live/" + s.sessionId;
     });
   };
@@ -107,7 +118,8 @@
         <div class="qr" id="qr" aria-label="QR code"></div>
         <div class="otp" id="otp" aria-live="polite">······</div>
         <div class="timer"><i id="bar"></i></div>
-        <div class="count" id="count">Scan the QR code or enter the code in SmartAttend</div>
+        <div class="count" id="count">Scan the QR code or enter the code</div>
+        <div class="loc" id="loc">Location: starting…</div>
       </section>
       <section class="stack">
         <div class="stats" id="liveStats"></div>
@@ -135,14 +147,16 @@
       bar.style.width = (frac * 100).toFixed(1) + "%";
       countEl.textContent = `New code in ${Math.max(0, Math.ceil(left / 1000))} s`;
       if (left <= 600) { ch = null; loadChallenge(); }
-      const closeLeft = new Date(s.closesAt).getTime() - now;
-      $("#closes", v).textContent = closeLeft > 0 ? `Closes automatically at ${SA.time(s.closesAt)} (${Math.ceil(closeLeft / 60000)} min)` : "Closing…";
+      const ends = new Date(s.endsAt || s.closesAt).getTime();
+      const confirmFrom = ends - (s.checkoutMinutes || 0) * 60000;
+      $("#closes", v).textContent = now < confirmFrom ? `Class ends ${SA.time(s.endsAt || s.closesAt)} · confirm opens ${SA.time(new Date(confirmFrom).toISOString())}`
+        : now < ends ? `Students confirming now · class ends ${SA.time(s.endsAt)}` : `Closing ${SA.time(s.closesAt)}`;
     }
     function renderSnap() {
       const c = snap.counts;
-      $("#liveStats", v).innerHTML = `<div class="stat"><b>${c.PRESENT}</b><span>Present</span></div><div class="stat"><b>${c.LATE}</b><span>Late</span></div>
-        <div class="stat"><b>${c.PENDING_VERIFICATION}</b><span>Pending review</span></div><div class="stat"><b>${snap.failedAttempts}</b><span>Failed attempts</span></div>
-        <div class="stat"><b>${esc(SA.pct(snap.percentage))}</b><span>of ${snap.enrolled} enrolled</span></div><div class="stat"><b>${snap.inProgress}</b><span>Verifying now</span></div>`;
+      $("#liveStats", v).innerHTML = `<div class="stat"><b>${c.CHECKED_IN}</b><span>Checked in</span></div>
+        <div class="stat"><b>${c.PRESENT + c.LATE}</b><span>Confirmed</span></div><div class="stat"><b>${snap.enrolled}</b><span>Students</span></div>
+        <div class="stat"><b>${snap.failedAttempts}</b><span>Failed</span></div>`;
       $("#feed", v).innerHTML = snap.records.filter((r) => r.status !== "ABSENT").map((r) => `<li><div><b>${esc(r.name)}</b><div class="small muted">${esc(r.indexNumber)} · ${esc(SA.time(r.submittedAt))}</div></div>
         <div class="row">${SA.badge(r.status)}${r.status === "PENDING_VERIFICATION" ? `<button class="btn sm success" type="button" data-approve="${esc(r.studentId)}">Approve</button>` : ""}</div></li>`).join("") || `<li class="muted">Nobody yet.</li>`;
       $("#fails", v).innerHTML = snap.failures.slice(0, 15).map((f) => `<li><div><b>${esc(f.name)}</b><div class="small muted">${esc(SA.label(f.eventType))} · ${esc((f.detail && f.detail.reason) ? SA.label(f.detail.reason) : "")}</div></div><span class="small muted">${esc(SA.time(f.createdAt))}</span></li>`).join("") || `<li class="muted">None.</li>`;
@@ -164,7 +178,21 @@
     let pending = false;
     es.addEventListener("update", () => { if (pending) return; pending = true; setTimeout(() => { pending = false; refresh(); }, 400); });
     const poll = setInterval(refresh, 15000);
-    liveCleanup = () => { stopped = true; clearInterval(timer); clearInterval(poll); es.close(); };
+    // Keep the geofence centred on this device while the screen is open.
+    let watch = null, lastSent = 0;
+    const locEl = $("#loc", v);
+    if (s.mode === "ONLINE") locEl.textContent = "Online class · no location check";
+    else if (navigator.geolocation) {
+      watch = navigator.geolocation.watchPosition((p) => {
+        locEl.textContent = `Location on · ±${Math.round(p.coords.accuracy)} m · ${s.geofenceM} m range`;
+        locEl.classList.remove("off");
+        if (Date.now() - lastSent < 30000) return;
+        lastSent = Date.now();
+        api(`/api/lecturer/sessions/${id}/anchor`, { method: "POST", body: { latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy } }).catch(() => {});
+      }, () => { locEl.textContent = "Location off · students can't check in"; locEl.classList.add("off"); },
+      { enableHighAccuracy: true, maximumAge: 10000 });
+    }
+    liveCleanup = () => { stopped = true; clearInterval(timer); clearInterval(poll); es.close(); if (watch !== null) navigator.geolocation.clearWatch(watch); };
 
     $("#fs", v).addEventListener("click", () => {
       const p = $("#proj", v);

@@ -139,6 +139,30 @@ public class StudentController {
         return attendance.verifyFace(me(), attemptId, challengeId, StudentAuthHelpersBridge.bytes(frames));
     }
 
+    public record CodeBody(String otp, String qrToken) {}
+
+    @PostMapping("/attendance/{attemptId}/code")
+    public Map<String, Object> code(@PathVariable UUID attemptId, @RequestBody CodeBody b) {
+        return attendance.verifyCode(me(), attemptId, b.otp(), b.qrToken());
+    }
+
+    @PostMapping("/attendance/checkout/{sessionId}/start")
+    public Map<String, Object> checkoutStart(@PathVariable UUID sessionId) {
+        return attendance.checkoutStart(me(), sessionId);
+    }
+
+    @PostMapping(value = "/attendance/checkout/{sessionId}/face", consumes = "multipart/form-data")
+    public Map<String, Object> checkoutFace(@PathVariable UUID sessionId, @RequestParam UUID challengeId,
+                                            @RequestParam("frames") List<MultipartFile> frames) throws IOException {
+        return attendance.checkoutFace(me(), sessionId, challengeId, StudentAuthHelpersBridge.bytes(frames));
+    }
+
+    @PostMapping("/attendance/checkout/{sessionId}/confirm")
+    public Map<String, Object> checkoutConfirm(@PathVariable UUID sessionId, @RequestBody(required = false) SubmitBody body, HttpServletRequest req) {
+        PresenceService.Gps gps = body == null ? null : new PresenceService.Gps(body.latitude(), body.longitude(), body.accuracy());
+        return attendance.checkoutConfirm(me(), sessionId, gps, req.getRemoteAddr());
+    }
+
     @PostMapping("/attendance/{attemptId}/passkey")
     public Map<String, Object> passkey(@PathVariable UUID attemptId, @RequestBody JsonNode credential) {
         return attendance.verifyPasskey(me(), attemptId, credential.toString());

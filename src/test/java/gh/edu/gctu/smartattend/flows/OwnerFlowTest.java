@@ -1,0 +1,124 @@
+package gh.edu.gctu.smartattend.flows;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import gh.edu.gctu.smartattend.support.Client;
+import gh.edu.gctu.smartattend.support.IntegrationTest;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * The owner-run flow: students sign in with index number + face, pick a course, confirm their index number,
+ * scan their face, scan the QR / enter the code, and must be within range of the admin's device. Attendance
+ * only counts after an end-of-class confirmation while still in range.
+ */
+class OwnerFlowTest extends IntegrationTest {
+    static final double LAT = 5.6037, LON = -0.1870;      // admin's device
+    static final double NEAR = LAT + 0.00018;             // ≈ 20 m away
+    static final double FAR = LAT + 0.0018;               // ≈ 200 m away
+
+    @BeforeEach
+    void ownerSettings() {
+        resetSetting("security.passkeyOnLogin", "false");
+        resetSetting("security.passkeyOnAttendance", "false");
+        resetSetting("attendance.checkoutMinutes", "10");
+        resetSetting("attendance.classMinutes", "60");
+        resetSetting("proximity.defaultPolicy", "GEOFENCE");
+    }
+
+    private static Map<String, Object> gps(double lat) {
+        return Map.of("latitude", lat, "longitude", LON, "accuracy", 15.0);
+    }
+
+    private String start(Client admin) {
+        Map<String, Object> body = new HashMap<>(Map.of("courseId", courseId("CSNS 141").toString(), "latitude", LAT, "longitude", LON, "accuracy", 10.0));
+        return expectOk(admin.post("/api/lecturer/sessions", body)).json().path("sessionId").asText();
+    }
+
+    @Test
+    void registerAndSignInWithIndexNumberAndFaceOnly() {
+        seedStudents(1);
+        verifyRegister();
+        Student s = register("TEST00001", "alice");
+        assertEquals(200, s.client().get("/api/me").status(), "signed in straight after face enrolment, no passkey");
+        assertEquals(0, db.scalar("SELECT count(*)::int FROM webauthn_credentials", Integer.class));
+
+        Client c = client();
+        JsonNode st = expectOk(c.post("/api/auth/student/login/start", Map.of("indexNumber", "TEST00001"))).json();
+        assertEquals("FACE", st.path("next").asText());
+        assertEquals(401, c.get("/api/me").status());
+        JsonNode ch = expectOk(c.post("/api/auth/student/login/face/challenge", null)).json();
+        JsonNode bad = expectOk(faceUpload(c, "/api/auth/student/login/face", ch, "mallory", null)).json();
+        assertFalse(bad.path("passed").asBoolean(), "someone else's face cannot sign in");
+        ch = expectOk(c.post("/api/auth/student/login/face/challenge", null)).json();
+        assertTrue(expectOk(faceUpload(c, "/api/auth/student/login/face", ch, "alice", null)).json().path("signedIn").asBoolean());
+        assertEquals(200, c.get("/api/me").status());
+    }
+
+    @Test
+    void fullOwnerFlowWithGeofenceAndEndOfClassConfirmation() {
+        seedStudents(3);
+        verifyRegister();
+        Student alice = register("TEST00001", "alice");
+        Student bob = register("TEST00002", "bob");
+        Client admin = admin("SUPER_ADMIN");
+
+        assertEquals("LOCATION_REQUIRED", admin.post("/api/lecturer/sessions", Map.of("courseId", courseId("CSNS 141").toString())).code(),
+                "the admin's device location is required to start");
+        String sid = start(admin);
+        String otp = challenge(admin, sid).path("otp").asText();
+
+        // Index number must be the student's own
+        assertEquals("INDEX_MISMATCH", alice.client().post("/api/student/attendance/begin", Map.of("sessionId", sid, "indexNumber", "TEST00002")).code());
+        JsonNode b = expectOk(alice.client().post("/api/student/attendance/begin", Map.of("sessionId", sid, "indexNumber", "test00001"))).json();
+        String att = b.path("attemptId").asText();
+        assertTrue(b.path("requiresLocation").asBoolean());
+        assertFalse(b.path("requiresPasskey").asBoolean());
+        // Face comes before the code
+        assertEquals("FACE_REQUIRED", alice.client().post("/api/student/attendance/" + att + "/code", Map.of("otp", otp)).code());
+        expectOk(faceUpload(alice.client(), "/api/student/attendance/" + att + "/face", b.path("faceChallenge"), "alice", null));
+        assertEquals("CODE_REQUIRED", alice.client().post("/api/student/attendance/" + att + "/submit", gps(NEAR)).code());
+        expectOk(alice.client().post("/api/student/attendance/" + att + "/code", Map.of("otp", otp)));
+        // Too far from the admin → refused; within range → checked in
+        Client.Resp far = alice.client().post("/api/student/attendance/" + att + "/submit", gps(FAR));
+        assertEquals(403, far.status());
+        assertEquals("OUT_OF_RANGE", far.code());
+        assertTrue(far.json().path("error").path("message").asText().contains("m away"));
+        assertEquals("OUT_OF_RANGE", alice.client().post("/api/student/attendance/" + att + "/submit", Map.of()).code(), "no location = no check-in");
+        JsonNode in = expectOk(alice.client().post("/api/student/attendance/" + att + "/submit", gps(NEAR))).json();
+        assertEquals("CHECKED_IN", in.path("status").asText());
+
+        // Bob checks in via QR (scanned from the board) too
+        JsonNode bb = expectOk(bob.client().post("/api/student/attendance/begin", Map.of("sessionId", sid, "indexNumber", "TEST00002"))).json();
+        String batt = bb.path("attemptId").asText();
+        expectOk(faceUpload(bob.client(), "/api/student/attendance/" + batt + "/face", bb.path("faceChallenge"), "bob", null));
+        expectOk(bob.client().post("/api/student/attendance/" + batt + "/code", Map.of("qrToken", qrToken(challenge(admin, sid)))));
+        assertEquals("CHECKED_IN", expectOk(bob.client().post("/api/student/attendance/" + batt + "/submit", gps(NEAR))).json().path("status").asText());
+
+        // Not counted yet; confirmation only opens in the last minutes of class
+        assertEquals("TOO_EARLY", alice.client().post("/api/student/attendance/checkout/" + sid + "/start", null).code());
+        db.update("UPDATE attendance_sessions SET ends_at = now() + interval '5 minutes', closes_at = now() + interval '15 minutes'");
+        JsonNode co = expectOk(alice.client().post("/api/student/attendance/checkout/" + sid + "/start", null)).json();
+        assertEquals("FACE_REQUIRED", alice.client().post("/api/student/attendance/checkout/" + sid + "/confirm", gps(NEAR)).code());
+        JsonNode cf = expectOk(faceUpload(alice.client(), "/api/student/attendance/checkout/" + sid + "/face", co.path("faceChallenge"), "alice", null)).json();
+        assertTrue(cf.path("passed").asBoolean());
+        assertEquals("OUT_OF_RANGE", alice.client().post("/api/student/attendance/checkout/" + sid + "/confirm", gps(FAR)).code(),
+                "left the class → cannot confirm");
+        JsonNode done = expectOk(alice.client().post("/api/student/attendance/checkout/" + sid + "/confirm", gps(NEAR))).json();
+        assertEquals("PRESENT", done.path("status").asText());
+
+        // The admin's device moved: the geofence follows it
+        expectOk(admin.post("/api/lecturer/sessions/" + sid + "/anchor", Map.of("latitude", FAR, "longitude", LON, "accuracy", 10.0)));
+
+        // Bob never confirms (left early); student 3 never came. Closing marks both absent.
+        JsonNode closed = expectOk(admin.post("/api/lecturer/sessions/" + sid + "/close", null)).json();
+        assertEquals(1, closed.path("leftEarly").asInt());
+        assertEquals("ABSENT", db.scalar("SELECT r.status FROM attendance_records r JOIN students s ON s.id = r.student_id WHERE s.index_number = 'TEST00002'", String.class));
+        assertEquals("PRESENT", db.scalar("SELECT r.status FROM attendance_records r JOIN students s ON s.id = r.student_id WHERE s.index_number = 'TEST00001'", String.class));
+        assertEquals("ABSENT", db.scalar("SELECT r.status FROM attendance_records r JOIN students s ON s.id = r.student_id WHERE s.index_number = 'TEST00003'", String.class));
+    }
+}

@@ -38,6 +38,7 @@ public class PresenceService {
             checks.add(Json.obj("type", "POLICY", "result", "NOT_REQUIRED"));
             return new Verdict("NOT_REQUIRED", checks);
         }
+        if ("GEOFENCE".equals(session.get("proximityPolicy"))) return geofence(session, gps);
         Map<String, Object> venue = session.get("venueId") == null ? null : db.one("""
                 SELECT code, latitude, longitude, radius_m, array_to_string(network_cidrs, ',') AS cidrs FROM venues WHERE id = :v""",
                 "v", session.get("venueId"));
@@ -72,6 +73,45 @@ public class PresenceService {
         checks.add(Json.obj("type", "BLE_BEACON", "result", "NOT_SUPPORTED_IN_BROWSER"));
         String result = anyNegative ? "INCONSISTENT" : anyPositive ? "CONSISTENT" : "NOT_EVALUATED";
         return new Verdict(result, checks);
+    }
+
+    /**
+     * Geofence around the admin's device: the student's phone must be within the session's radius of the
+     * location most recently reported by the admin's screen. GPS accuracy indoors is limited, so a small
+     * allowance (at most 25 m) for the phone's reported accuracy is added.
+     */
+    Verdict geofence(Map<String, Object> session, Gps gps) {
+        List<Map<String, Object>> checks = new ArrayList<>();
+        Double aLat = (Double) session.get("anchorLat"), aLon = (Double) session.get("anchorLon");
+        java.time.Instant at = (java.time.Instant) session.get("anchorAt");
+        int radius = ((Number) session.get("geofenceM")).intValue();
+        String r;
+        Long dist = null;
+        if (aLat == null || aLon == null || at == null) r = "ADMIN_LOCATION_MISSING";
+        else if (at.isBefore(java.time.Instant.now().minusSeconds(15 * 60))) r = "ADMIN_LOCATION_STALE";
+        else if (gps == null || gps.lat() == null || gps.lon() == null) r = "NOT_PROVIDED";
+        else if (gps.accuracy() != null && gps.accuracy() > 150) r = "LOW_ACCURACY";
+        else {
+            double d = haversine(gps.lat(), gps.lon(), aLat, aLon);
+            dist = Math.round(d);
+            double allowance = Math.min(gps.accuracy() == null ? 0 : gps.accuracy(), 25);
+            r = d <= radius + allowance ? "PASS" : "TOO_FAR";
+        }
+        checks.add(Json.obj("type", "GEOFENCE", "result", r, "distanceM", dist, "radiusM", radius,
+                "accuracyM", gps == null || gps.accuracy() == null ? null : Math.round(gps.accuracy())));
+        return new Verdict("PASS".equals(r) ? "CONSISTENT" : "INCONSISTENT", checks);
+    }
+
+    /** Short user-facing message for a failed geofence. */
+    public static String geofenceMessage(Verdict v) {
+        Object r = v.checks().isEmpty() ? null : v.checks().get(0).get("result");
+        Object d = v.checks().isEmpty() ? null : v.checks().get(0).get("distanceM");
+        Object radius = v.checks().isEmpty() ? null : v.checks().get(0).get("radiusM");
+        if ("TOO_FAR".equals(r)) return "You're " + d + " m away. Get within " + radius + " m of the class.";
+        if ("NOT_PROVIDED".equals(r)) return "Turn on location and allow it for this site.";
+        if ("LOW_ACCURACY".equals(r)) return "Location is too imprecise. Turn on precise location and try again.";
+        if ("ADMIN_LOCATION_STALE".equals(r) || "ADMIN_LOCATION_MISSING".equals(r)) return "Class location isn't available yet. Try again in a moment.";
+        return "You're not in class range.";
     }
 
     static double haversine(double lat1, double lon1, double lat2, double lon2) {

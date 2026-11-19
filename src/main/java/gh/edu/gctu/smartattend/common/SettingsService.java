@@ -27,7 +27,12 @@ public class SettingsService {
         SCHEMA.put("face.matchThreshold", "num:0.30:0.80");
         SCHEMA.put("face.duplicateCheckOnEnrol", "bool");
         SCHEMA.put("biometric.retentionDays", "int:30:3650");
-        SCHEMA.put("proximity.defaultPolicy", "enum:NONE,EVIDENCE,STRICT");
+        SCHEMA.put("proximity.defaultPolicy", "enum:NONE,EVIDENCE,STRICT,GEOFENCE");
+        SCHEMA.put("security.passkeyOnLogin", "bool");
+        SCHEMA.put("security.faceOnCheckout", "bool");
+        SCHEMA.put("attendance.geofenceMeters", "int:10:1000");
+        SCHEMA.put("attendance.checkoutMinutes", "int:0:60");
+        SCHEMA.put("attendance.classMinutes", "int:10:480");
     }
 
     private final Db db;

@@ -86,13 +86,8 @@ public class AdminController {
                                 "). Students cannot register and attendance cannot start until it is verified."));
             }
         }
-        Integer noCred = db.scalar("SELECT count(*)::int FROM lecturers l JOIN app_users u ON u.id = l.user_id WHERE u.password_hash IS NULL", Integer.class);
-        if (noCred != null && noCred > 0) w.add(Json.obj("level", "MEDIUM", "link", "#/lecturers", "message", noCred + " lecturer(s) have no sign-in credentials yet."));
         Integer noCode = db.scalar("SELECT count(*)::int FROM courses WHERE code IS NULL", Integer.class);
         if (noCode != null && noCode > 0) w.add(Json.obj("level", "LOW", "link", "#/courses", "message", noCode + " course(s) have no course code confirmed."));
-        Integer noGeo = db.scalar("SELECT count(*)::int FROM venues WHERE latitude IS NULL AND cardinality(network_cidrs) = 0", Integer.class);
-        if (noGeo != null && noGeo > 0) w.add(Json.obj("level", "LOW", "link", "#/venues",
-                "message", noGeo + " venue(s) have no GPS coordinates or classroom network configured; proximity evidence will be 'not evaluated'."));
         return w;
     }
 
