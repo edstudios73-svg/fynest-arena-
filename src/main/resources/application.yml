@@ -1,0 +1,59 @@
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
+  error:
+    include-stacktrace: never
+    include-message: never
+  servlet:
+    session:
+      tracking-modes: []
+  tomcat:
+    max-swallow-size: 12MB
+
+spring:
+  application:
+    name: smartattend
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/smartattend}
+    username: ${DATABASE_USER:smartattend}
+    password: ${DATABASE_PASSWORD:}
+    hikari:
+      maximum-pool-size: ${DATABASE_POOL_SIZE:15}
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      max-file-size: 8MB
+      max-request-size: 10MB
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: always
+  mvc:
+    async:
+      request-timeout: -1
+
+smartattend:
+  # Public base URL used in QR codes and WebAuthn origin checks, e.g. https://attend.gctu.edu.gh
+  base-url: ${SMARTATTEND_BASE_URL:http://localhost:8080}
+  # WebAuthn relying-party ID: the registrable domain (no scheme/port), e.g. attend.gctu.edu.gh
+  rp-id: ${SMARTATTEND_RP_ID:localhost}
+  rp-name: SmartAttend GCTU
+  # Extra allowed origins (comma separated) for WebAuthn and CSRF origin checks
+  extra-origins: ${SMARTATTEND_EXTRA_ORIGINS:}
+  # 32-byte keys, base64 encoded. REQUIRED in production. In dev, a key file is generated if missing.
+  biometric-key: ${SMARTATTEND_BIOMETRIC_KEY:}
+  hmac-key: ${SMARTATTEND_HMAC_KEY:}
+  dev-key-file: ${SMARTATTEND_DEV_KEY_FILE:./data/dev-keys.properties}
+  allow-dev-keys: ${SMARTATTEND_ALLOW_DEV_KEYS:true}
+  cookie-secure: ${SMARTATTEND_COOKIE_SECURE:false}
+  session-hours: 8
+  models-dir: ${SMARTATTEND_MODELS_DIR:./models}
+  face-provider: ${SMARTATTEND_FACE_PROVIDER:local-opencv}
+  bootstrap-super-admin-email: ${SMARTATTEND_SUPERADMIN_EMAIL:}
+  bootstrap-super-admin-password: ${SMARTATTEND_SUPERADMIN_PASSWORD:}
+
+logging:
+  level:
+    root: INFO
+    org.apache.poi: WARN

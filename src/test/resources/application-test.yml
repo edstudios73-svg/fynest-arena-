@@ -1,0 +1,17 @@
+spring:
+  datasource:
+    url: ${TEST_DATABASE_URL:jdbc:postgresql://localhost:5432/smartattend_test}
+    username: ${TEST_DATABASE_USER:smartattend}
+    password: ${TEST_DATABASE_PASSWORD:devpass}
+  flyway:
+    clean-disabled: false
+smartattend:
+  base-url: http://localhost
+  rp-id: localhost
+  face-provider: test
+  dev-key-file: ./target/test-keys.properties
+  bootstrap-super-admin-email: ""
+  bootstrap-super-admin-password: ""
+logging:
+  level:
+    root: WARN

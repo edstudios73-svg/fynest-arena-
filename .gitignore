@@ -1,0 +1,12 @@
+target/
+data/
+models/*.onnx
+*.log
+.env
+.env.*
+!.env.example
+node_modules/
+.idea/
+*.iml
+.vscode/
+tests-e2e/screens/
