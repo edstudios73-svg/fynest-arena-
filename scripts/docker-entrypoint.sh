@@ -8,6 +8,8 @@ if [ "$(id -u)" = "0" ]; then
     mkdir -p "$SMARTATTEND_DATA_DIR"
     chown -R smartattend:smartattend "$SMARTATTEND_DATA_DIR"
   fi
-  exec setpriv --reuid=smartattend --regid=smartattend --init-groups java $JAVA_OPTS -jar /app/app.jar
+  # keep only the right to listen on a low port (some hosts assign PORT=80)
+  exec setpriv --reuid=smartattend --regid=smartattend --init-groups \
+    --inh-caps=+net_bind_service --ambient-caps=+net_bind_service java $JAVA_OPTS -jar /app/app.jar
 fi
 exec java $JAVA_OPTS -jar /app/app.jar
