@@ -130,18 +130,20 @@ service is needed.
 
 A permanent disk requires a paid Render instance (Starter). Run exactly one instance.
 
-## Live deployment (Vercel)
+## Live deployment (Vercel + Neon, free)
 
-Live at **https://smartattend-gctu.vercel.app** — Vercel project `smartattend-gctu` (team Mcdan), built from the root
-`Dockerfile` with Vercel's Container runtime.
+Live at **https://smartattend-gctu.vercel.app** — Vercel project `smartattend-gctu` (team Mcdan, free Hobby plan), built
+from the root `Dockerfile` with Vercel's Container runtime, using a free Neon PostgreSQL database connected through
+Vercel Storage (it provides `DATABASE_URL_UNPOOLED`, which the app picks up automatically).
 
-- **Preview mode (current):** no external database is attached, so `SMARTATTEND_EMBEDDED_DB=true` starts a real
-  PostgreSQL 16 *inside* the app. Vercel containers have no permanent disk, so **data resets when Vercel restarts the
-  app**; a banner says so on every page. The official class list is re-imported automatically after each restart from
-  the encrypted `SMARTATTEND_SEED_REGISTER` environment variable (never stored in git) and left unverified.
-- **Permanent data:** attach any PostgreSQL (e.g. Vercel Storage → Neon) so the project gets `DATABASE_URL`
-  (`postgres://…` URLs are accepted directly), then redeploy. Preview mode switches off automatically.
-- Keep a copy of `SMARTATTEND_BIOMETRIC_KEY` from the Vercel environment variables: without it, stored faces can't be read.
+- Vercel runs several copies of the app; they all share the Neon database, so sign-ins and data are consistent and permanent.
+- On first start against an empty database the official class list is imported from the encrypted
+  `SMARTATTEND_SEED_REGISTER` environment variable (never stored in git) and left **unverified**.
+- First admin: `admin@smartattend.gctu` with the one-time password in `SMARTATTEND_SUPERADMIN_PASSWORD`; it must be
+  changed at first sign-in.
+- Keep a copy of `SMARTATTEND_BIOMETRIC_KEY`: without it, stored faces can't be read.
+- Without any database configured, `SMARTATTEND_EMBEDDED_DB=true` falls back to a temporary built-in PostgreSQL
+  ("preview mode", banner shown, data not kept).
 
 ## Deployment
 
