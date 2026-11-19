@@ -4,7 +4,7 @@ WORKDIR /src
 COPY pom.xml .
 RUN mvn -q -B dependency:go-offline
 COPY src ./src
-RUN mvn -q -B package -DskipTests
+RUN mvn -q -B package -Dmaven.test.skip=true
 
 FROM eclipse-temurin:21-jre-jammy
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/* \

@@ -7,7 +7,7 @@
     <ul class="small">
       <li>We store an encrypted numeric face template — not your photo. Camera frames are deleted after analysis.</li>
       <li>It is used only for GCTU attendance and account recovery, never to identify you elsewhere.</li>
-      <li>It is kept for your programme (about two years) and you can ask for it to be deleted.</li>
+      <li>It is kept for your programme (about five years) and you can ask for it to be deleted.</li>
     </ul>
     <p class="small">Read the full <a href="/privacy.html" target="_blank" rel="noopener">privacy notice</a>.</p>`;
 

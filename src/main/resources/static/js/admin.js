@@ -220,10 +220,13 @@
         ${acct === "PENDING_APPROVAL" ? `<button class="btn sm success" id="approve" type="button">Approve account</button>` : ""}
         ${acct === "ACTIVE" || acct === "PENDING_APPROVAL" ? `<button class="btn sm danger" id="suspend" type="button">Suspend</button>` : ""}
         ${acct === "SUSPENDED" ? `<button class="btn sm" id="reactivate" type="button">Reactivate</button>` : ""}
-        ${d.biometric.some((b) => b.status === "ACTIVE") ? `<button class="btn ghost sm" id="bio" type="button">Delete face template</button>` : ""}
+        ${d.biometric.some((b) => b.status === "ACTIVE") ? `<button class="btn ghost sm" id="bio" type="button">Reset locked face</button>` : ""}
         <button class="btn ghost sm" data-dl="/api/admin/reports/student/${esc(s.id)}?format=pdf" type="button">Attendance report PDF</button></div></div>
       <div class="grid2"><div class="panel"><h3>Face verification</h3>
-        <p class="small muted">Only enrolment status is shown. Templates are encrypted and never displayed or downloadable.</p>
+        ${(() => { const a = d.biometric.find((b) => b.status === "ACTIVE"); return a
+          ? SA.alert("success", `Face locked to ${s.indexNumber} since ${SA.date(a.createdAt)}. The student cannot change it; only an administrator can reset it. Kept until ${SA.date(a.retentionUntil)}.`)
+          : SA.alert("info", "No face enrolled yet. The first face enrolled for this index number will be locked to it."); })()}
+        <p class="small muted">Templates are encrypted and never displayed or downloadable.</p>
         ${SA.table([{ label: "Status", html: (b) => SA.badge(b.status) }, { label: "Provider", key: "provider" }, { label: "Consent", get: (b) => b.consentVersion + " · " + SA.date(b.consentGivenAt) }, { label: "Delete by", get: (b) => SA.date(b.retentionUntil) }], d.biometric, "Not enrolled.")}
         <h3>Recent face checks</h3>${SA.table([{ label: "When", get: (f) => SA.dateTime(f.usedAt) }, { label: "Purpose", get: (f) => SA.label(f.purpose) }, { label: "Result", html: (f) => SA.badge(f.passed ? "ok" : "REJECTED").replace("Ok", "Passed") }, { label: "Reason", get: (f) => SA.label(f.failure) }], d.faceAttempts, "None.")}</div>
       <div class="panel"><h3>Devices</h3>${SA.table([{ label: "Device", key: "label" }, { label: "Last used", get: (x) => SA.dateTime(x.lastSeenAt) }, { label: "Passkeys", num: true, key: "passkeys" }, { label: "Status", html: (x) => SA.badge(x.status) },
@@ -251,7 +254,7 @@
       if (r) busy(null, async () => { await api(`/api/admin/students/${id}/reactivate`, { method: "POST", body: r }); reload(); });
     });
     if ($("#bio", v)) $("#bio", v).addEventListener("click", async () => {
-      const r = await SA.formDialog({ title: "Delete face template", intro: "The template is erased. The student will be asked to consent and enrol again at next sign-in.", fields: [{ name: "reason", label: "Reason (e.g. data subject request)", required: true }], submit: "Delete template", danger: true });
+      const r = await SA.formDialog({ title: "Reset locked face", intro: "The locked face template is erased. The student must consent and enrol again at their next sign-in, and the new face is then locked. Use only after verifying identity in person or on a data deletion request.", fields: [{ name: "reason", label: "Reason (e.g. data subject request)", required: true }], submit: "Delete template", danger: true });
       if (r) busy(null, async () => { await api(`/api/admin/students/${id}/biometric/delete`, { method: "POST", body: r }); reload(); });
     });
     $$("[data-revoke]", v).forEach((b) => b.addEventListener("click", () => revokeDevice(b.dataset.revoke, reload)));

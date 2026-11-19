@@ -115,7 +115,10 @@ public class FaceService {
         for (int i = 0; i < steps.size(); i++) if (steps.get(i).equals("CENTER")) centers.add(analyses.get(i).embedding());
 
         double threshold = settings.getDouble("face.matchThreshold");
-        if ("ENROL".equals(purpose)) {
+        // Face lock: once a face is enrolled for an index number it is permanent. A repeated enrolment
+        // (e.g. an interrupted registration started again) must match the locked face; it never replaces it.
+        boolean locked = "ENROL".equals(purpose) && hasTemplate(studentId);
+        if ("ENROL".equals(purpose) && !locked) {
             double agree = engine.similarity(centers.get(0), centers.get(centers.size() - 1));
             if (agree < 0.55) return fail(challengeId, studentId, "INCONSISTENT_CAPTURE", agree);
             float[] template = mean(centers);
@@ -130,8 +133,11 @@ public class FaceService {
         double score = Double.MAX_VALUE;
         for (float[] c : centers) score = Math.min(score, engine.similarity(reference, c));
         if (score < threshold) {
-            Outcome o = fail(challengeId, studentId, "FACE_MISMATCH", score);
-            return o;
+            if (locked) {
+                fraud.raise("ENROLMENT_FACE_MISMATCH", "HIGH", studentId, null, null,
+                        Json.obj("note", "A different face tried to register an index number whose face is already locked."));
+            }
+            return fail(challengeId, studentId, locked ? "FACE_LOCKED_MISMATCH" : "FACE_MISMATCH", score);
         }
         pass(challengeId, score);
         return new Outcome(true, score, null, "Face verified", challengeId);
@@ -214,6 +220,7 @@ public class FaceService {
             case "TOO_BRIGHT" -> "Too much light. Avoid strong light behind or in front of you.";
             case "TOO_BLURRY" -> "The image is blurry. Hold your phone steady.";
             case "FACE_MISMATCH" -> "Facial verification failed: the face does not match the enrolled student.";
+            case "FACE_LOCKED_MISMATCH" -> "A face is already locked to this index number and yours does not match it. Only that student can register. If this is your index number, see the administrator.";
             case "INCONSISTENT_CAPTURE" -> "Capture was inconsistent. Please try again in good lighting.";
             case "REPLAYED_FRAME" -> "Duplicate frames detected. Please retry the live check.";
             default -> "Facial verification failed. Please try again.";

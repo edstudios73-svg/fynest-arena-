@@ -10,3 +10,7 @@ node_modules/
 *.iml
 .vscode/
 tests-e2e/screens/
+# Official student registers contain personal data: never commit them
+*.xlsx
+*.xls
+register*.csv

@@ -209,4 +209,32 @@ class AuthenticationFlowTest extends IntegrationTest {
         assertEquals(429, r.status(), "correct password is refused while locked");
         assertNotNull(l);
     }
+
+    @Test
+    void enrolledFaceIsLockedToTheIndexNumber() {
+        seedStudents(1);
+        verifyRegister();
+        // Alice enrols her face but abandons registration before creating a passkey.
+        Client a = client();
+        expectOk(a.post("/api/auth/student/register/start", Map.of("indexNumber", "TEST00001")));
+        expectOk(a.post("/api/auth/student/register/confirm", Map.of("confirmed", true)));
+        expectOk(a.post("/api/auth/student/register/consent", Map.of("accepted", true, "consentVersion", FaceService.CONSENT_VERSION)));
+        JsonNode ch = expectOk(a.post("/api/auth/student/register/face/challenge", null)).json();
+        assertTrue(expectOk(faceUpload(a, "/api/auth/student/register/face", ch, "alice", null)).json().path("passed").asBoolean());
+        // Mallory restarts registration with Alice's index number: her face cannot replace the locked one.
+        Client m = client();
+        expectOk(m.post("/api/auth/student/register/start", Map.of("indexNumber", "TEST00001")));
+        expectOk(m.post("/api/auth/student/register/confirm", Map.of("confirmed", true)));
+        expectOk(m.post("/api/auth/student/register/consent", Map.of("accepted", true, "consentVersion", FaceService.CONSENT_VERSION)));
+        JsonNode ch2 = expectOk(m.post("/api/auth/student/register/face/challenge", null)).json();
+        JsonNode r = expectOk(faceUpload(m, "/api/auth/student/register/face", ch2, "mallory", null)).json();
+        assertFalse(r.path("passed").asBoolean());
+        assertEquals("FACE_LOCKED_MISMATCH", r.path("reason").asText());
+        assertEquals(1, db.scalar("SELECT count(*)::int FROM biometric_enrollments", Integer.class), "template was not replaced");
+        assertEquals(1, db.scalar("SELECT count(*)::int FROM fraud_alerts WHERE kind = 'ENROLMENT_FACE_MISMATCH'", Integer.class));
+        // Alice can still finish: her face matches the locked template.
+        Student s = register("TEST00001", "alice");
+        assertEquals(200, s.client().get("/api/me").status());
+        assertEquals(1, db.scalar("SELECT count(*)::int FROM biometric_enrollments", Integer.class));
+    }
 }

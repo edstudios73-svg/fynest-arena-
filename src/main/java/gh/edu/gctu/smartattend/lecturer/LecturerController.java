@@ -57,6 +57,7 @@ public class LecturerController {
     @GetMapping("/overview")
     public Map<String, Object> overview() {
         CurrentUser u = AuthContext.require();
+        attendance.housekeepingIfDue();
         UUID sem = calendar.currentSemesterId();
         List<UUID> ids = myCourseIds(u);
         String idList = ids.isEmpty() ? "" : String.join(",", ids.stream().map(UUID::toString).toList());
@@ -131,6 +132,7 @@ public class LecturerController {
     @GetMapping("/sessions/{id}")
     public Map<String, Object> session(@PathVariable UUID id) {
         CurrentUser u = AuthContext.require();
+        attendance.housekeepingIfDue();
         Map<String, Object> s = access.requireSession(u, id);
         Map<String, Object> info = db.one("""
                 SELECT s.id, s.status, s.mode, s.session_date, s.opened_at, s.closes_at, s.closed_at, s.late_after_minutes,

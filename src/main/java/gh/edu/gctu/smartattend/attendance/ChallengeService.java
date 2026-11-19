@@ -7,7 +7,6 @@ import gh.edu.gctu.smartattend.common.SettingsService;
 import gh.edu.gctu.smartattend.config.AppProperties;
 import gh.edu.gctu.smartattend.security.Crypto;
 import gh.edu.gctu.smartattend.security.KeyProvider;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,17 +20,15 @@ import java.util.concurrent.ConcurrentHashMap;
  *  - a 6-digit OTP from SecureRandom (unpredictable; not time- or student-derived), stored only as
  *    HMAC-SHA256(server key, sessionId:otp) so codes are session-bound and a DB leak reveals nothing;
  *  - an opaque 192-bit QR token (stored as SHA-256), embedded in a link — no student data, no OTP.
- * The plaintext is kept only in memory so the lecturer screen can display it until it expires.
+ * For display on the lecturer screen from any server instance, "otp|token" is also stored encrypted
+ * (AES-256-GCM, bound to the challenge id); verification never uses it, and it is wiped on expiry.
  */
 @Service
 public class ChallengeService {
-    private record Plain(String otp, String qrToken, Instant expiresAt) {}
-
     private final Db db;
     private final KeyProvider keys;
     private final SettingsService settings;
     private final AppProperties props;
-    private final Map<UUID, Plain> plaintext = new ConcurrentHashMap<>();
 
     public ChallengeService(Db db, KeyProvider keys, SettingsService settings, AppProperties props) {
         this.db = db;
@@ -50,25 +47,31 @@ public class ChallengeService {
         Map<String, Object> s = db.one("SELECT status FROM attendance_sessions WHERE id = :id FOR UPDATE", "id", sessionId);
         if (s == null || !"OPEN".equals(s.get("status"))) throw ApiException.conflict("SESSION_CLOSED", "This attendance session is closed.");
         Map<String, Object> c = db.one("""
-                SELECT id, issued_at, expires_at FROM attendance_challenges
+                SELECT id, issued_at, expires_at, display_ciphertext, display_iv FROM attendance_challenges
                 WHERE session_id = :s AND revoked_at IS NULL AND expires_at > now() + interval '1 second'
+                  AND display_ciphertext IS NOT NULL
                 ORDER BY expires_at DESC LIMIT 1""", "s", sessionId);
-        Plain p = c == null ? null : plaintext.get((UUID) c.get("id"));
-        if (p == null) {
-            // Either expired or (after a restart) the plaintext is gone: issue a fresh challenge.
+        String otp, token;
+        if (c != null) {
+            String[] parts = new String(Crypto.aesGcmDecrypt(keys.hmacKey(), (byte[]) c.get("displayIv"),
+                    (byte[]) c.get("displayCiphertext"), aad((UUID) c.get("id"))), java.nio.charset.StandardCharsets.UTF_8).split("\\|");
+            otp = parts[0];
+            token = parts[1];
+        } else {
             db.update("UPDATE attendance_challenges SET revoked_at = now() WHERE session_id = :s AND revoked_at IS NULL AND expires_at > now()", "s", sessionId);
-            String otp = Crypto.sixDigitCode();
-            String token = Crypto.randomToken(24);
+            otp = Crypto.sixDigitCode();
+            token = Crypto.randomToken(24);
             int ttl = settings.getInt("attendance.otpRotationSeconds");
+            UUID id = UUID.randomUUID();
+            Crypto.Sealed sealed = Crypto.aesGcmEncrypt(keys.hmacKey(), (otp + "|" + token).getBytes(java.nio.charset.StandardCharsets.UTF_8), aad(id));
             c = db.one("""
-                    INSERT INTO attendance_challenges(session_id, otp_hash, qr_token_hash, expires_at)
-                    VALUES (:s, :oh, :qh, now() + make_interval(secs => :ttl)) RETURNING id, issued_at, expires_at""",
-                    "s", sessionId, "oh", otpHash(sessionId, otp), "qh", Crypto.sha256(token), "ttl", ttl);
-            p = new Plain(otp, token, (Instant) c.get("expiresAt"));
-            plaintext.put((UUID) c.get("id"), p);
+                    INSERT INTO attendance_challenges(id, session_id, otp_hash, qr_token_hash, expires_at, display_ciphertext, display_iv)
+                    VALUES (:id, :s, :oh, :qh, now() + make_interval(secs => :ttl), :dc, :di) RETURNING id, issued_at, expires_at""",
+                    "id", id, "s", sessionId, "oh", otpHash(sessionId, otp), "qh", Crypto.sha256(token), "ttl", ttl,
+                    "dc", sealed.ciphertext(), "di", sealed.iv());
         }
-        String url = props.baseUrl().replaceAll("/$", "") + "/student.html#/attend?t=" + p.qrToken();
-        return Json.obj("challengeId", c.get("id"), "otp", p.otp(), "qrUrl", url, "qrSvg", QrSvg.svg(url),
+        String url = props.baseUrl().replaceAll("/$", "") + "/student.html#/attend?t=" + token;
+        return Json.obj("challengeId", c.get("id"), "otp", otp, "qrUrl", url, "qrSvg", QrSvg.svg(url),
                 "issuedAt", c.get("issuedAt"), "expiresAt", c.get("expiresAt"), "serverNow", Instant.now(),
                 "rotationSeconds", settings.getInt("attendance.otpRotationSeconds"));
     }
@@ -102,9 +105,12 @@ public class ChallengeService {
         db.update("UPDATE attendance_challenges SET revoked_at = now(), expires_at = LEAST(expires_at, now()) WHERE session_id = :s AND revoked_at IS NULL", "s", sessionId);
     }
 
-    @Scheduled(fixedDelay = 60_000)
-    void purge() {
-        Instant cutoff = Instant.now().minusSeconds(5);
-        plaintext.entrySet().removeIf(e -> e.getValue().expiresAt().isBefore(cutoff));
+    private static byte[] aad(UUID challengeId) {
+        return ("smartattend-otp-display:" + challengeId).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** Wipe display copies of expired challenges (only the HMAC remains). */
+    public void purgeExpiredDisplays() {
+        db.update("UPDATE attendance_challenges SET display_ciphertext = NULL, display_iv = NULL WHERE display_ciphertext IS NOT NULL AND expires_at < now() - interval '30 seconds'");
     }
 }

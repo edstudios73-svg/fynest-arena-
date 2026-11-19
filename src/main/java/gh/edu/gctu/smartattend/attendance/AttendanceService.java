@@ -163,8 +163,23 @@ public class AttendanceService {
         return Json.obj("cancelled", true);
     }
 
+    private volatile long lastHousekeeping = 0;
+
+    /**
+     * Runs housekeeping at most every 10 s per instance. Called from request paths as well as the
+     * scheduler, because serverless instances (e.g. Vercel) may be paused between requests.
+     */
+    public void housekeepingIfDue() {
+        long now = System.currentTimeMillis();
+        if (now - lastHousekeeping < 10_000) return;
+        lastHousekeeping = now;
+        autoClose();
+    }
+
     @Scheduled(fixedDelay = 15_000, initialDelay = 15_000)
     public void autoClose() {
+        lastHousekeeping = System.currentTimeMillis();
+        challenges.purgeExpiredDisplays();
         for (var s : db.list("SELECT id FROM attendance_sessions WHERE status = 'OPEN' AND closes_at <= now()")) {
             try { tx.executeWithoutResult(st -> close(null, (UUID) s.get("id"), true)); } catch (ApiException ignored) { }
         }
@@ -204,6 +219,7 @@ public class AttendanceService {
     // ===================================================================== Student side
 
     public List<Map<String, Object>> activeForStudent(UUID studentId) {
+        housekeepingIfDue();
         return db.list("""
                 SELECT s.id AS session_id, s.mode, s.opened_at, s.closes_at, s.session_date, s.require_face, s.require_passkey,
                        s.proximity_policy, c.id AS course_id, c.code AS course_code, c.title AS course_title, v.code AS venue,

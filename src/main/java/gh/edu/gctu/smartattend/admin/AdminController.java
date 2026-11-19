@@ -321,7 +321,7 @@ public class AdminController {
         return Json.obj("reactivated", true);
     }
 
-    /** Erase the face template (data-subject request / retention). Student re-enrols at next sign-in. */
+    /** The ONLY way to unlock a student's face: erase the template (audited). Student re-enrols at next sign-in. */
     @PostMapping("/students/{id}/biometric/delete")
     public Map<String, Object> deleteBiometric(@PathVariable UUID id, @RequestBody ReasonBody b) {
         admin();
