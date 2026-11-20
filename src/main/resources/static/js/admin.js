@@ -96,20 +96,38 @@
     init() { if (this.on()) this.start(); },
     start() {
       if (!navigator.geolocation) { SA.toast("This device can't share its location.", "error"); return false; }
+      if (!window.isSecureContext) { SA.toast("Location needs the https:// link.", "error"); return false; }
       localStorage.setItem("sa_owner_loc", "on");
       if (this.watch !== null) return true;
+      this.problem = null;
+      this.listen(true);
+      this.paint();
+      return true;
+    },
+    /** Watch the position. High accuracy (GPS) first; if it can't get a fix, fall back to Wi-Fi/network location instead of giving up. */
+    listen(high) {
+      if (this.watch !== null) navigator.geolocation.clearWatch(this.watch);
+      this.high = high;
       this.watch = navigator.geolocation.watchPosition((p) => {
+        this.problem = null;
         this.last = { latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy };
         this.paint();
         this.listeners.forEach((fn) => fn(this.last));
         if (Date.now() - this.lastSent > 30000) this.push();
       }, (e) => {
-        SA.toast(e.code === 1 ? "Allow location for this site." : "Couldn't get your location.", "error");
-        this.stop();
-        this.listeners.forEach((fn) => fn(null));
-      }, { enableHighAccuracy: true, maximumAge: 10000 });
-      this.paint();
-      return true;
+        if (e.code === 1) {
+          // Permission denied: only the user can fix this in the browser.
+          this.stop();
+          this.listeners.forEach((fn) => fn(null));
+          SA.formDialog({ title: "Allow location", intro: "Your browser blocked location for this site. Tap the lock icon next to the address, set Location to Allow, then turn My location on again. On a phone, also turn on Location in Settings.", fields: [], submit: "OK" });
+          return;
+        }
+        // Timeout or no fix yet (common indoors): keep trying, with network location if GPS can't see the sky.
+        this.problem = this.last ? null : "Finding your location…";
+        this.paint();
+        if (this.high) this.listen(false);
+        else setTimeout(() => { if (this.on() && !this.last) this.listen(true); }, 15000);
+      }, { enableHighAccuracy: high, maximumAge: 15000, timeout: high ? 20000 : 30000 });
     },
     stop() {
       localStorage.setItem("sa_owner_loc", "off");
@@ -124,13 +142,18 @@
     },
     current() {
       if (this.last) return Promise.resolve(this.last);
-      return SA.staff.position().then((p) => { this.last = p; return p; });
+      if (!this.on()) this.start();
+      return new Promise((resolve, reject) => {
+        const done = (p) => { clearTimeout(t); this.listeners.delete(done); p ? resolve(p) : reject(new SA.ApiError(0, "GPS", "Location is blocked. Allow it for this site and try again.")); };
+        const t = setTimeout(() => { this.listeners.delete(done); reject(new SA.ApiError(0, "GPS", "Still finding your location. Wait a few seconds and try again.")); }, 45000);
+        this.listeners.add(done);
+      });
     },
     paint() {
       const sw = $("#locSwitch");
       if (!sw) return;
       sw.checked = this.on();
-      $("#locText").textContent = !this.on() ? "Off" : this.last ? `On · ±${Math.round(this.last.accuracy)} m` : "Turning on…";
+      $("#locText").textContent = !this.on() ? "Off" : this.last ? `On · ±${Math.round(this.last.accuracy)} m` : this.problem || "Turning on…";
     },
   };
 
@@ -176,7 +199,7 @@
     if (OwnerLocation.on()) OwnerLocation.push();
 
     $("#locSwitch", v).addEventListener("change", (e) => {
-      if (e.target.checked) { if (OwnerLocation.start()) OwnerLocation.push(); } else OwnerLocation.stop();
+      if (e.target.checked) { if (OwnerLocation.start()) OwnerLocation.push(); else e.target.checked = false; } else OwnerLocation.stop();
     });
     if ($("#addCourse", v)) $("#addCourse", v).addEventListener("click", () => editCourse(null));
     $$("[data-manual]", v).forEach((b) => b.addEventListener("click", () => manualClass(b.dataset.manual, b.dataset.title)));
@@ -223,7 +246,7 @@
       { name: "lecturerName", label: "Lecturer", value: c && c.lecturerName },
       { name: "creditHours", label: "Credit hours", type: "number", value: c ? c.creditHours ?? "" : 3 },
       { name: "classMinutes", label: "Duration (minutes)", type: "number", value: c ? c.classMinutes : 120, required: true },
-      { name: "geofenceMeters", label: "Students within (metres)", type: "number", value: c ? c.geofenceM : 50, required: true },
+      { name: "geofenceMeters", label: "Students within (metres)", type: "number", value: c ? c.geofenceM : 100, required: true },
     ], submit: "Save" });
     if (!r) return;
     const body = { ...r, creditHours: r.creditHours === "" ? null : Number(r.creditHours), classMinutes: Number(r.classMinutes), geofenceMeters: Number(r.geofenceMeters), altCode: c ? c.altCode : null };

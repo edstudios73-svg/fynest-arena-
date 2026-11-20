@@ -77,8 +77,8 @@ public class PresenceService {
 
     /**
      * Geofence around the admin's device: the student's phone must be within the session's radius of the
-     * location most recently reported by the admin's screen. GPS accuracy indoors is limited, so a small
-     * allowance (at most 25 m) for the phone's reported accuracy is added.
+     * location most recently reported by the admin's screen. GPS accuracy indoors is limited, so an
+     * allowance for both devices' reported accuracy (at most 50 m each) is added.
      */
     Verdict geofence(Map<String, Object> session, Gps gps) {
         List<Map<String, Object>> checks = new ArrayList<>();
@@ -94,7 +94,11 @@ public class PresenceService {
         else {
             double d = haversine(gps.lat(), gps.lon(), aLat, aLon);
             dist = Math.round(d);
-            double allowance = Math.min(gps.accuracy() == null ? 0 : gps.accuracy(), 25);
+            // Both readings are uncertain indoors (big halls, concrete): allow for the student's and the admin's
+            // reported accuracy, capped so a very rough reading can't stretch the range too far.
+            Number aAcc = (Number) session.get("anchorAccuracy");
+            double allowance = Math.min(gps.accuracy() == null ? 0 : gps.accuracy(), 50)
+                    + Math.min(aAcc == null ? 0 : aAcc.doubleValue(), 50);
             r = d <= radius + allowance ? "PASS" : "TOO_FAR";
         }
         checks.add(Json.obj("type", "GEOFENCE", "result", r, "distanceM", dist, "radiusM", radius,

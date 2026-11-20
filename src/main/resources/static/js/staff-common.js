@@ -74,10 +74,12 @@
 
   ST.position = () => new Promise((resolve, reject) => {
     if (!navigator.geolocation) return reject(new SA.ApiError(0, "NO_GPS", "This device can't share its location."));
-    navigator.geolocation.getCurrentPosition(
-      (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }),
-      (e) => reject(new SA.ApiError(0, "GPS", e.code === 1 ? "Allow location for this site to start a class." : "Couldn't get this device's location.")),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+    const ok = (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy });
+    const fail = (e) => reject(new SA.ApiError(0, "GPS", e.code === 1 ? "Allow location for this site to start a class." : "Couldn't get this device's location. Try again."));
+    // GPS first; indoors it may not get a fix, so fall back to Wi-Fi/network location.
+    navigator.geolocation.getCurrentPosition(ok,
+      (e) => e.code === 1 ? fail(e) : navigator.geolocation.getCurrentPosition(ok, fail, { enableHighAccuracy: false, timeout: 30000, maximumAge: 60000 }),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 15000 });
   });
 
   ST.startDialog = async function (courseId, info) {
@@ -90,7 +92,7 @@
     }
     const r = await SA.formDialog({ title: "Start class", intro: (c.course.code ? c.course.code + " · " : "") + c.course.title, fields: [
       { name: "classMinutes", label: "Class length (minutes)", type: "number", value: mins, required: true },
-      { name: "geofenceMeters", label: "Students must be within (metres)", type: "number", value: 50, required: true },
+      { name: "geofenceMeters", label: "Students must be within (metres)", type: "number", value: 100, required: true },
       { name: "checkoutMinutes", label: "End-of-class confirm window (minutes)", type: "number", value: 10, required: true },
       { name: "online", type: "checkbox", label: "Online class (no location check)", value: today && today.mode === "ONLINE" },
     ], submit: "Start" });

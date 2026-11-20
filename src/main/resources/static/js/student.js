@@ -177,10 +177,12 @@
   function getLocation() {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) return reject(new SA.ApiError(0, "NO_GPS", "This phone can't share its location."));
-      navigator.geolocation.getCurrentPosition(
-        (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }),
-        (e) => reject(new SA.ApiError(0, "GPS", e.code === 1 ? "Allow location for this site, then try again." : "Couldn't get your location. Try again.")),
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+      const ok = (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy });
+      const fail = (e) => reject(new SA.ApiError(0, "GPS", e.code === 1 ? "Allow location for this site (tap the lock icon by the address), then try again." : "Couldn't get your location. Turn on Location and try again."));
+      // GPS first; inside a big hall it may not get a fix, so fall back to Wi-Fi/network location.
+      navigator.geolocation.getCurrentPosition(ok,
+        (e) => e.code === 1 ? fail(e) : navigator.geolocation.getCurrentPosition(ok, fail, { enableHighAccuracy: false, timeout: 30000, maximumAge: 30000 }),
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 10000 });
     });
   }
 
