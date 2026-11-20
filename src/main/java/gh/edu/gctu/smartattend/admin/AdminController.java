@@ -135,7 +135,7 @@ public class AdminController {
         admin();
         if (b.expectedSize() != null && (b.expectedSize() < 1 || b.expectedSize() > 5000)) throw ApiException.badRequest("INVALID", "Invalid size.");
         db.update("""
-                UPDATE class_groups SET expected_size = :e, expected_size_source = :s, register_status = 'UNVERIFIED',
+                UPDATE class_groups SET expected_size = :e, expected_size_source = :s, register_status = 'VERIFIED',
                     register_verified_at = NULL, register_verified_by = NULL WHERE id = :g""",
                 "e", b.expectedSize(), "s", b.source(), "g", id);
         audit.log("GROUP_EXPECTED_SIZE_CHANGED", "class_group", id, Json.obj("expectedSize", b.expectedSize(), "source", b.source()));
@@ -253,7 +253,6 @@ public class AdminController {
                 INSERT INTO course_enrollments(course_id, student_id, semester_id)
                 SELECT DISTINCT course_id, :s, semester_id FROM class_timetables WHERE class_group_id = :g AND semester_id = :sem
                 ON CONFLICT DO NOTHING""", "s", id, "g", b.classGroupId(), "sem", sem);
-        db.update("UPDATE class_groups SET register_status = 'UNVERIFIED' WHERE id = :g", "g", b.classGroupId());
         audit.log("STUDENT_ADDED", "student", id, Json.obj("indexNumber", idx, "reason", b.reason()));
         return Json.obj("id", id);
     }
@@ -273,7 +272,6 @@ public class AdminController {
                 UPDATE students SET title = :t, first_name = :f, last_name = :l, other_names = :o, register_status = :rs, updated_at = now()
                 WHERE id = :id""", "t", nz(b.title()), "f", b.firstName().trim(), "l", b.lastName().trim(), "o", nz(b.otherNames()), "rs", rs, "id", id);
         if (!rs.equals(before.get("registerStatus"))) {
-            db.update("UPDATE class_groups SET register_status = 'UNVERIFIED' WHERE id = :g", "g", before.get("classGroupId"));
         }
         audit.log("STUDENT_RECORD_CORRECTED", "student", id, Json.obj("before", before,
                 "after", Json.obj("title", b.title(), "firstName", b.firstName(), "lastName", b.lastName(), "otherNames", b.otherNames(), "registerStatus", rs),
@@ -400,22 +398,52 @@ public class AdminController {
         admin();
         UUID sem = calendar.currentSemesterId();
         return db.list("""
-                SELECT c.id, c.code, c.alt_code, c.title, p.name AS programme,
+                SELECT c.id, c.code, c.alt_code, c.title, c.lecturer_name, c.credit_hours, c.class_minutes, c.geofence_m,
+                       p.name AS programme,
                        (SELECT count(*) FROM course_enrollments e WHERE e.course_id = c.id AND e.semester_id = :sem AND e.status = 'ENROLLED') AS enrolled,
+                       o.id AS open_session_id, o.ends_at AS open_ends_at, o.anchor_at AS open_anchor_at, o.mode AS open_mode,
+                       (SELECT count(*) FROM attendance_records r WHERE r.session_id = o.id AND r.status = 'CHECKED_IN') AS checked_in,
+                       (SELECT count(*) FROM attendance_records r WHERE r.session_id = o.id AND r.status IN ('PRESENT','LATE')) AS confirmed,
                        (SELECT json_agg(json_build_object('lecturerId', l.id, 'name', trim(coalesce(l.title || ' ', '') || l.full_name)))
                           FROM course_assignments a JOIN lecturers l ON l.id = a.lecturer_id WHERE a.course_id = c.id AND a.semester_id = :sem) AS lecturers
-                FROM courses c JOIN programmes p ON p.id = c.programme_id ORDER BY c.code NULLS LAST, c.title""", "sem", sem);
+                FROM courses c JOIN programmes p ON p.id = c.programme_id
+                LEFT JOIN attendance_sessions o ON o.course_id = c.id AND o.status = 'OPEN'
+                ORDER BY c.code NULLS LAST, c.title""", "sem", sem);
     }
 
-    public record CourseBody(UUID programmeId, String code, String altCode, String title) {}
+    public record CourseBody(UUID programmeId, String code, String altCode, String title, String lecturerName,
+                             Integer creditHours, Integer classMinutes, Integer geofenceMeters) {}
+
+    static void validateCourse(CourseBody b) {
+        if (blank(b.title())) throw ApiException.badRequest("TITLE_REQUIRED", "Course title is required.");
+        if (b.creditHours() != null && (b.creditHours() < 0 || b.creditHours() > 20)) throw ApiException.badRequest("INVALID", "Credit hours must be 0–20.");
+        if (b.classMinutes() != null && (b.classMinutes() < 10 || b.classMinutes() > 480)) throw ApiException.badRequest("INVALID", "Duration must be 10–480 minutes.");
+        if (b.geofenceMeters() != null && (b.geofenceMeters() < 10 || b.geofenceMeters() > 1000)) throw ApiException.badRequest("INVALID", "Distance must be 10–1000 m.");
+    }
 
     @PostMapping("/courses")
+    @Transactional
     public Map<String, Object> addCourse(@RequestBody CourseBody b) {
         admin();
-        if (blank(b.title())) throw ApiException.badRequest("TITLE_REQUIRED", "Course title is required.");
+        validateCourse(b);
         UUID prog = b.programmeId() != null ? b.programmeId() : db.scalar("SELECT id FROM programmes ORDER BY created_at LIMIT 1", UUID.class);
-        UUID id = db.insertReturningId("INSERT INTO courses(programme_id, code, alt_code, title) VALUES (:p, :c, :a, :t) RETURNING id",
-                "p", prog, "c", nz(b.code()), "a", nz(b.altCode()), "t", b.title().trim());
+        UUID id = db.insertReturningId("""
+                INSERT INTO courses(programme_id, code, alt_code, title, lecturer_name, credit_hours, class_minutes, geofence_m)
+                VALUES (:p, :c, :a, :t, :l, :ch, COALESCE(:cm, 120), COALESCE(:g, 50)) RETURNING id""",
+                "p", prog, "c", nz(b.code()), "a", nz(b.altCode()), "t", b.title().trim(), "l", nz(b.lecturerName()),
+                "ch", b.creditHours(), "cm", b.classMinutes(), "g", b.geofenceMeters());
+        // Every student in the class list takes every course.
+        db.update("""
+                INSERT INTO course_enrollments(course_id, student_id, semester_id)
+                SELECT :c, s.id, g.semester_id FROM students s JOIN class_groups g ON g.id = s.class_group_id
+                WHERE s.register_status = 'ACTIVE' ON CONFLICT DO NOTHING""", "c", id);
+        UUID group = db.scalar("SELECT id FROM class_groups ORDER BY created_at LIMIT 1", UUID.class);
+        if (group != null) {
+            db.update("""
+                    INSERT INTO class_timetables(course_id, class_group_id, semester_id, day_of_week, start_time, end_time, mode)
+                    SELECT :c, :g, g.semester_id, 1, TIME '08:00', TIME '08:00' + make_interval(mins => COALESCE(:cm, 120)), 'IN_PERSON'
+                    FROM class_groups g WHERE g.id = :g""", "c", id, "g", group, "cm", b.classMinutes());
+        }
         audit.log("COURSE_CREATED", "course", id, Json.obj("code", b.code(), "title", b.title()));
         return Json.obj("id", id);
     }
@@ -423,10 +451,14 @@ public class AdminController {
     @PutMapping("/courses/{id}")
     public Map<String, Object> updateCourse(@PathVariable UUID id, @RequestBody CourseBody b) {
         admin();
-        if (blank(b.title())) throw ApiException.badRequest("TITLE_REQUIRED", "Course title is required.");
-        Map<String, Object> before = db.one("SELECT code, alt_code, title FROM courses WHERE id = :id", "id", id);
+        validateCourse(b);
+        Map<String, Object> before = db.one("SELECT code, alt_code, title, lecturer_name, credit_hours, class_minutes, geofence_m FROM courses WHERE id = :id", "id", id);
         if (before == null) throw ApiException.notFound("NOT_FOUND", "Course not found.");
-        db.update("UPDATE courses SET code = :c, alt_code = :a, title = :t WHERE id = :id", "c", nz(b.code()), "a", nz(b.altCode()), "t", b.title().trim(), "id", id);
+        db.update("""
+                UPDATE courses SET code = :c, alt_code = :a, title = :t, lecturer_name = :l, credit_hours = :ch,
+                    class_minutes = COALESCE(:cm, class_minutes), geofence_m = COALESCE(:g, geofence_m) WHERE id = :id""",
+                "c", nz(b.code()), "a", nz(b.altCode()), "t", b.title().trim(), "l", nz(b.lecturerName()), "ch", b.creditHours(),
+                "cm", b.classMinutes(), "g", b.geofenceMeters(), "id", id);
         audit.log("COURSE_UPDATED", "course", id, Json.obj("before", before, "after", b));
         return Json.obj("updated", true);
     }

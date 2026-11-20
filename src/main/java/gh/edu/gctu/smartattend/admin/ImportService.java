@@ -136,12 +136,12 @@ public class ImportService {
                 SELECT expected_size, (SELECT count(*)::int FROM students WHERE class_group_id = :g AND register_status = 'ACTIVE') AS actual
                 FROM class_groups WHERE id = :g""", "g", group);
         if (inserted > 0) {
-            db.update("UPDATE class_groups SET register_status = 'UNVERIFIED', register_verified_at = NULL, register_verified_by = NULL WHERE id = :g", "g", group);
+            db.update("UPDATE class_groups SET register_status = 'VERIFIED' WHERE id = :g", "g", group);
         }
         audit.log("REGISTER_IMPORT_COMMITTED", "import_batch", batchId, Json.obj("inserted", inserted, "skipped", skipped, "enrolments", enrolments,
                 "expected", g.get("expectedSize"), "actual", g.get("actual")));
         return Json.obj("inserted", inserted, "skipped", skipped, "enrolments", enrolments, "expected", g.get("expectedSize"), "actual", g.get("actual"),
-                "registerStatus", "UNVERIFIED");
+                "registerStatus", "VERIFIED");
     }
 
     public Parsed parse(String filename, byte[] bytes, String sheetName) throws IOException {

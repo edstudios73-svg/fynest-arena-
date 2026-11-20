@@ -384,3 +384,39 @@ code.secret { display: block; font-size: 1.25rem; padding: .8rem; background: va
 
 .projector .loc { text-align: center; font-size: .9rem; color: #6EE7A5; }
 .projector .loc.off { color: #FCA5A5; }
+
+/* ---------- Owner course cards ---------- */
+.owner-bar { display: flex; align-items: center; gap: .9rem; background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-lg); padding: .9rem 1.1rem; margin-bottom: 1.25rem; }
+.owner-bar > div { flex: 1; }
+.owner-bar b { display: block; }
+.owner-bar small { color: var(--muted); }
+.ccards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.ccard { background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 1.15rem; display: grid; gap: .8rem; transition: box-shadow .2s, border-color .2s; }
+.ccard.live { border-color: var(--ink); box-shadow: 0 0 0 3px var(--signal-soft); }
+.ccard header { display: flex; justify-content: space-between; gap: .75rem; align-items: flex-start; }
+.ccard h3 { margin: 0 0 .15rem; font-size: 1.12rem; }
+.ccard header small { color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.chips span { background: var(--mist); border-radius: 99px; padding: .2rem .65rem; font-size: .82rem; font-weight: 600; color: #34445F; }
+.live-line { margin: 0; font-size: .9rem; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: .45rem; }
+.dot-live { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 rgba(20,128,74,.5); animation: pulse 1.8s infinite; }
+.ccard footer { display: flex; align-items: center; gap: .7rem; border-top: 1px solid var(--line); padding-top: .8rem; }
+.ccard footer .sw-label { flex: 1; font-weight: 650; }
+.switch { position: relative; display: inline-block; width: 52px; height: 30px; flex: none; margin: 0; }
+.switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; z-index: 1; }
+.switch .slider { position: absolute; inset: 0; background: #CBD3E1; border-radius: 99px; transition: background .2s; }
+.switch .slider::before { content: ""; position: absolute; width: 24px; height: 24px; left: 3px; top: 3px; background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(10,28,58,.3); transition: transform .2s; }
+.switch input:checked + .slider { background: var(--green); }
+.switch input:checked + .slider::before { transform: translateX(22px); }
+.switch input:focus-visible + .slider { outline: 3px solid var(--signal); outline-offset: 2px; }
+.switch input:disabled + .slider { opacity: .6; }
+
+/* ---------- Bigger face capture ---------- */
+.face-stage { aspect-ratio: auto; height: min(76vh, 760px); max-height: none; border-radius: var(--r-lg); }
+.face-stage .oval { inset: 7% 9% 15%; border-width: 4px; }
+.face-stage .instruction { font-size: 1.45rem; padding: 1.4rem 1rem; }
+.face-stage .arrow { font-size: 4.5rem; }
+@media (max-width: 900px) {
+  .panel:has(.face-stage) { padding: .5rem; }
+  .face-stage { height: calc(100vh - 210px); min-height: 420px; }
+}

@@ -58,10 +58,7 @@ public class StudentController {
                     SELECT t.day_of_week, t.start_time, t.end_time FROM class_timetables t
                     WHERE t.course_id = :c AND t.semester_id = :sem AND t.class_group_id = :g ORDER BY t.day_of_week LIMIT 1""",
                     "c", s.get("courseId"), "sem", sem, "g", groupOf(u.studentId()));
-            String lecturer = db.scalar("""
-                    SELECT string_agg(trim(coalesce(l.title || ' ', '') || l.full_name), ', ') FROM course_assignments a
-                    JOIN lecturers l ON l.id = a.lecturer_id WHERE a.course_id = :c AND a.semester_id = :sem""",
-                    String.class, "c", s.get("courseId"), "sem", sem);
+            String lecturer = db.scalar("SELECT lecturer_name FROM courses WHERE id = :c", String.class, "c", s.get("courseId"));
             courses.add(Json.obj("courseId", s.get("courseId"), "code", s.get("courseCode"), "title", s.get("courseTitle"),
                     "lecturer", lecturer, "slot", slot, "percentage", s.get("percentage"), "attended", s.get("attended"),
                     "eligible", s.get("denominator"), "late", s.get("late"), "absent", s.get("absent"),

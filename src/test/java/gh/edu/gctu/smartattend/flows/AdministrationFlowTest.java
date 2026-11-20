@@ -71,9 +71,8 @@ class AdministrationFlowTest extends IntegrationTest {
         assertEquals("Given4 Other4 Family4", db.scalar("SELECT first_name || ' ' || other_names || ' ' || last_name FROM students WHERE index_number = 'SYN0000004'", String.class));
         assertEquals("BATCH_DONE", admin.post("/api/admin/imports/" + p.path("batchId").asText() + "/commit", null).code(), "cannot commit twice");
 
-        // Overview flags the unverified register / discrepancy
-        JsonNode ov = expectOk(admin.get("/api/admin/overview")).json();
-        assertTrue(ov.path("warnings").toString().contains("134 records vs 129 expected"), ov.path("warnings").toString());
+        // The list is active straight away (students can register); the admin can still record a check.
+        assertEquals("VERIFIED", db.scalar("SELECT register_status FROM class_groups", String.class));
 
         // Verification refused without acknowledging the discrepancy
         assertEquals("DISCREPANCY_UNRESOLVED", admin.post("/api/admin/groups/" + group + "/verify", Map.of("note", "ok")).code());
@@ -191,6 +190,34 @@ class AdministrationFlowTest extends IntegrationTest {
         assertNotNull(db.scalar("SELECT revoked_at FROM webauthn_credentials WHERE credential_id = :c", java.sql.Timestamp.class, "c", oldCred));
         assertEquals(401, s.client().get("/api/me").status(), "old device sessions are revoked");
         assertEquals(200, newPhone.refresh().get("/api/me").status());
+    }
+
+    @Test
+    void ownerEditsCourseAndClassUsesItsSettings() {
+        seedStudents(2);
+        Client admin = admin("SUPER_ADMIN");
+        String id = courseId("CSNS 141").toString();
+        expectOk(admin.put("/api/admin/courses/" + id, Map.of("title", "Digital Electronics", "code", "CSNS 141",
+                "lecturerName", "Gabriel Gidisu", "creditHours", 3, "classMinutes", 180, "geofenceMeters", 30)));
+        JsonNode c = null;
+        for (JsonNode x : expectOk(admin.get("/api/admin/courses")).json()) if (x.path("id").asText().equals(id)) c = x;
+        assertEquals(3, c.path("creditHours").asInt());
+        assertEquals(180, c.path("classMinutes").asInt());
+        assertEquals(30, c.path("geofenceM").asInt());
+        assertEquals("INVALID", admin.put("/api/admin/courses/" + id, Map.of("title", "X", "classMinutes", 5)).code());
+
+        // Activating attendance uses the course's duration and distance
+        String sid = expectOk(admin.post("/api/lecturer/sessions", Map.of("courseId", id, "proximityPolicy", "GEOFENCE",
+                "latitude", 5.6, "longitude", -0.18, "accuracy", 10.0))).json().path("sessionId").asText();
+        assertEquals(30, db.scalar("SELECT geofence_m FROM attendance_sessions WHERE id = CAST(:s AS uuid)", Integer.class, "s", sid));
+        assertTrue(db.scalar("SELECT ends_at - opened_at BETWEEN interval '179 minutes' AND interval '181 minutes' FROM attendance_sessions WHERE id = CAST(:s AS uuid)", Boolean.class, "s", sid));
+        JsonNode live = null;
+        for (JsonNode x : expectOk(admin.get("/api/admin/courses")).json()) if (x.path("id").asText().equals(id)) live = x;
+        assertEquals(sid, live.path("openSessionId").asText(), "course card shows attendance on");
+
+        // New course: everyone in the class list can take it
+        String nid = expectOk(admin.post("/api/admin/courses", Map.of("title", "Web Design", "code", "CSWD 120", "classMinutes", 90))).json().path("id").asText();
+        assertEquals(2, db.scalar("SELECT count(*)::int FROM course_enrollments WHERE course_id = CAST(:c AS uuid)", Integer.class, "c", nid));
     }
 
     @Test

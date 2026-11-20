@@ -19,9 +19,9 @@ import java.util.List;
  * certified PAD provider through FaceEngine.
  */
 public final class LivenessEvaluator {
-    public static final double CENTER_MAX = 0.14;
-    public static final double TURN_MIN = 0.20;
-    public static final double MIN_SPREAD = 0.45;
+    public static final double CENTER_MAX = 0.18;
+    public static final double TURN_MIN = 0.15;
+    public static final double MIN_SPREAD = 0.32;
 
     private LivenessEvaluator() {}
 

@@ -50,7 +50,6 @@
     const d = await api("/api/student/dashboard");
     const open = Object.fromEntries(d.active.map((a) => [a.courseId, a]));
     SA.view("Courses", `
-      ${d.accountStatus === "PENDING_APPROVAL" ? SA.alert("warn", "Waiting for admin approval.") : ""}
       ${d.active.map((a) => `<div class="live-callout"><span class="pulse">Class open</span><h2>${esc(a.courseTitle)}</h2>${sessionLine(a)}</div>`).join("")}
       <div class="course-list">${d.courses.map((c) => `<a class="course-row" href="#/c/${esc(c.courseId)}">
         <span><b>${esc(c.title)}</b><small>${esc(c.code || "")}</small></span>

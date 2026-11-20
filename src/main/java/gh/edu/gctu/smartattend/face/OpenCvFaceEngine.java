@@ -100,10 +100,10 @@ public class OpenCvFaceEngine implements FaceEngine {
             gray.release(); lap.release();
 
             String problem = null;
-            if (widthRatio < 0.14) problem = "FACE_TOO_SMALL";
-            else if (brightness < 45) problem = "TOO_DARK";
+            if (widthRatio < 0.10) problem = "FACE_TOO_SMALL";
+            else if (brightness < 35) problem = "TOO_DARK";
             else if (brightness > 225) problem = "TOO_BRIGHT";
-            else if (sharpness < 12) problem = "TOO_BLURRY";
+            else if (sharpness < 8) problem = "TOO_BLURRY";
 
             FaceRecognizerSF rec = recogniser.get();
             rec.alignCrop(img, faces.row(0), aligned);

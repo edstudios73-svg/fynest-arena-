@@ -42,11 +42,12 @@ class AuthenticationFlowTest extends IntegrationTest {
     }
 
     @Test
-    void registrationBlockedUntilRegisterVerified() {
+    void registrationOpensAsSoonAsTheClassListIsLoaded() {
         seedStudents(1);
         Client.Resp r = client().post("/api/auth/student/register/start", Map.of("indexNumber", "TEST00001"));
-        assertEquals(403, r.status());
-        assertEquals("REGISTER_NOT_VERIFIED", r.code());
+        assertEquals(200, r.status(), "no verification step: students can register immediately");
+        Student s = register("TEST00001", "alice");
+        assertEquals("ACTIVE", s.client().get("/api/me").json().path("status").asText(), "approved automatically");
     }
 
     @Test

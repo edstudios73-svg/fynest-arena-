@@ -68,10 +68,6 @@ public class StudentAuthController {
             throw ApiException.notFound("ACCOUNT_NOT_FOUND",
                     "We could not find this index number in the official register. Check it and try again, or contact the department.");
         }
-        if (!"VERIFIED".equals(s.get("groupRegisterStatus"))) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "REGISTER_NOT_VERIFIED",
-                    "Your class register is still being verified by the administrator. Registration will open soon.");
-        }
         if (!"ACTIVE".equals(s.get("registerStatus"))) {
             throw new ApiException(HttpStatus.FORBIDDEN, "RECORD_UNDER_REVIEW", "Your register entry is under review. Please contact the department.");
         }

@@ -81,20 +81,19 @@ public class AttendanceService {
                 SELECT class_group_id FROM class_timetables WHERE course_id = :c AND semester_id = :s LIMIT 1""",
                 UUID.class, "c", r.courseId(), "s", semesterId);
         if (groupId == null) throw ApiException.conflict("NO_CLASS", "This course has no class assigned in the current semester.");
-        String reg = db.scalar("SELECT register_status FROM class_groups WHERE id = :g", String.class, "g", groupId);
-        if (!"VERIFIED".equals(reg)) {
-            throw ApiException.conflict("REGISTER_NOT_VERIFIED", "The class register has not been verified by an administrator yet.");
-        }
+        Map<String, Object> courseCfg = db.one("SELECT class_minutes, geofence_m FROM courses WHERE id = :c", "c", r.courseId());
         String mode = r.mode() != null ? r.mode() : slot != null ? (String) slot.get("mode") : "IN_PERSON";
         if (!Set.of("IN_PERSON", "ONLINE").contains(mode)) throw ApiException.badRequest("INVALID_MODE", "Invalid mode.");
         UUID venueId = "ONLINE".equals(mode) ? null : slot != null ? (UUID) slot.get("venueId") : null;
         String prox = "ONLINE".equals(mode) ? "NONE" : r.proximityPolicy() != null ? r.proximityPolicy() : settings.get("proximity.defaultPolicy");
         if (!Set.of("NONE", "EVIDENCE", "STRICT", "GEOFENCE").contains(prox)) throw ApiException.badRequest("INVALID_POLICY", "Invalid proximity policy.");
-        int duration = r.classMinutes() != null ? r.classMinutes() : r.durationMinutes() != null ? r.durationMinutes() : settings.getInt("attendance.classMinutes");
+        int duration = r.classMinutes() != null ? r.classMinutes() : r.durationMinutes() != null ? r.durationMinutes()
+                : courseCfg != null && courseCfg.get("classMinutes") != null ? ((Number) courseCfg.get("classMinutes")).intValue() : settings.getInt("attendance.classMinutes");
         if (duration < 2 || duration > 480) throw ApiException.badRequest("INVALID_DURATION", "Class length must be between 2 and 480 minutes.");
         int checkout = r.checkoutMinutes() != null ? r.checkoutMinutes() : settings.getInt("attendance.checkoutMinutes");
         if (checkout < 0 || checkout > 60 || checkout >= duration) throw ApiException.badRequest("INVALID_CHECKOUT", "Invalid end-of-class confirmation window.");
-        int geofence = r.geofenceMeters() != null ? r.geofenceMeters() : settings.getInt("attendance.geofenceMeters");
+        int geofence = r.geofenceMeters() != null ? r.geofenceMeters()
+                : courseCfg != null && courseCfg.get("geofenceM") != null ? ((Number) courseCfg.get("geofenceM")).intValue() : settings.getInt("attendance.geofenceMeters");
         if (geofence < 10 || geofence > 1000) throw ApiException.badRequest("INVALID_RADIUS", "Distance must be 10–1000 m.");
         if ("GEOFENCE".equals(prox) && (r.latitude() == null || r.longitude() == null)) {
             throw ApiException.badRequest("LOCATION_REQUIRED", "Turn on location on this device to start attendance.");

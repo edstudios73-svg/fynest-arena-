@@ -44,7 +44,7 @@ public class Bootstrap implements ApplicationRunner {
     /**
      * When the database has no students yet, import the official class list from the SMARTATTEND_SEED_REGISTER
      * environment variable (base64 of the .xlsx or .csv, stored encrypted in the hosting platform, never in git).
-     * The register is left UNVERIFIED: an administrator must verify it before students can register.
+     * Students can register as soon as the list is loaded.
      * Safe if several instances start at once (inserts ignore duplicates).
      */
     void seedRegisterIfEmpty() {

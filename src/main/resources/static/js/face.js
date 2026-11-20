@@ -2,7 +2,7 @@
    server for liveness + 1:1 comparison and are discarded there; nothing is stored on the device. */
 (function () {
   "use strict";
-  const PROMPT = { CENTER: "Look straight at the camera", LEFT: "Turn your head to your left", RIGHT: "Turn your head to your right" };
+  const PROMPT = { CENTER: "Look straight ahead", LEFT: "Turn your head left", RIGHT: "Turn your head right" };
 
   /**
    * Mounts a capture UI in `root`, runs `challenge.steps`, then calls upload(formData) and returns its result.
@@ -19,7 +19,7 @@
     }
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 960 } }, audio: false });
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 1280 } }, audio: false });
     } catch (e) {
       const msg = e && e.name === "NotAllowedError"
         ? "Camera permission denied. Allow camera access for this site in your browser settings, then try again."
@@ -38,8 +38,8 @@
         canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height); // raw (un-mirrored) frame
         canvas.toBlob((b) => resolve(b), "image/jpeg", 0.85);
       });
-      say.textContent = "Position your face inside the oval";
-      await sleep(1400);
+      say.textContent = "Fill the oval with your face";
+      await sleep(1800);
       const frames = [];
       for (const step of challenge.steps) {
         say.textContent = PROMPT[step] || step;
@@ -47,7 +47,7 @@
         arrowL.classList.toggle("hidden", step !== "LEFT");
         arrowR.classList.toggle("hidden", step !== "RIGHT");
         oval.classList.remove("capture");
-        await sleep(step === "CENTER" ? 1300 : 1700);
+        await sleep(step === "CENTER" ? 1500 : 2200);
         oval.classList.add("capture");
         frames.push(await grab());
         await sleep(250);

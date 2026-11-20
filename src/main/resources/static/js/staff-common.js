@@ -179,20 +179,32 @@
     es.addEventListener("update", () => { if (pending) return; pending = true; setTimeout(() => { pending = false; refresh(); }, 400); });
     const poll = setInterval(refresh, 15000);
     // Keep the geofence centred on this device while the screen is open.
-    let watch = null, lastSent = 0;
+    let watch = null, lastSent = 0, unlisten = null;
     const locEl = $("#loc", v);
+    const label = (p) => {
+      if (!p) { locEl.textContent = "Location off · students can't check in"; locEl.classList.add("off"); return; }
+      locEl.textContent = `Location on · ±${Math.round(p.accuracy)} m · ${s.geofenceM} m range`;
+      locEl.classList.remove("off");
+    };
     if (s.mode === "ONLINE") locEl.textContent = "Online class · no location check";
-    else if (navigator.geolocation) {
-      watch = navigator.geolocation.watchPosition((p) => {
-        locEl.textContent = `Location on · ±${Math.round(p.coords.accuracy)} m · ${s.geofenceM} m range`;
-        locEl.classList.remove("off");
+    else if (SA.ownerLocation) {
+      // Admin app: one shared location reader for every open class.
+      const L = SA.ownerLocation;
+      if (!L.openIds.includes(id)) L.openIds.push(id);
+      L.start();
+      L.listeners.add(label);
+      unlisten = () => L.listeners.delete(label);
+      if (L.last) { label(L.last); L.push(); }
+    } else if (navigator.geolocation) {
+      watch = navigator.geolocation.watchPosition((pos) => {
+        const p = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy };
+        label(p);
         if (Date.now() - lastSent < 30000) return;
         lastSent = Date.now();
-        api(`/api/lecturer/sessions/${id}/anchor`, { method: "POST", body: { latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy } }).catch(() => {});
-      }, () => { locEl.textContent = "Location off · students can't check in"; locEl.classList.add("off"); },
-      { enableHighAccuracy: true, maximumAge: 10000 });
+        api(`/api/lecturer/sessions/${id}/anchor`, { method: "POST", body: p }).catch(() => {});
+      }, () => label(null), { enableHighAccuracy: true, maximumAge: 10000 });
     }
-    liveCleanup = () => { stopped = true; clearInterval(timer); clearInterval(poll); es.close(); if (watch !== null) navigator.geolocation.clearWatch(watch); };
+    liveCleanup = () => { stopped = true; clearInterval(timer); clearInterval(poll); es.close(); if (watch !== null) navigator.geolocation.clearWatch(watch); if (unlisten) unlisten(); };
 
     $("#fs", v).addEventListener("click", () => {
       const p = $("#proj", v);

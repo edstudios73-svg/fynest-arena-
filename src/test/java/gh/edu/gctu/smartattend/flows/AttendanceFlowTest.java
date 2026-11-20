@@ -276,10 +276,10 @@ class AttendanceFlowTest extends IntegrationTest {
     }
 
     @Test
-    void attendanceCannotStartBeforeRegisterVerified() {
+    void attendanceCanStartWithoutRegisterVerification() {
         seedStudents(1);
         Client lec = lecturer("CSNS 141");
-        assertEquals("REGISTER_NOT_VERIFIED", lec.post("/api/lecturer/sessions", Map.of("courseId", courseId("CSNS 141").toString())).code());
+        startSession(lec, "CSNS 141", null);
     }
 
     @Test

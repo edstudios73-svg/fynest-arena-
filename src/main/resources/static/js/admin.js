@@ -18,35 +18,36 @@
     SA.shell({
       me, home: "#/", cls: "staff",
       nav: [
-        { key: "home", href: "#/", label: "Home", icon: "home" },
-        { key: "courses", href: "#/courses", label: "Classes", icon: "play" },
+        { key: "home", href: "#/", label: "Courses", icon: "book" },
         { key: "students", href: "#/students", label: "Students", icon: "users" },
         { key: "register", href: "#/register", label: "Class list", icon: "upload" },
         { key: "reports", href: "#/reports", label: "Reports", icon: "file" },
         { key: "settings", href: "#/settings", label: "Settings", icon: "settings" },
         { group: "More" },
+        { key: "overview", href: "#/overview", label: "Overview", icon: "home" },
         { key: "sessions", href: "#/sessions", label: "Past classes", icon: "list" },
         { key: "analytics", href: "#/analytics", label: "Analytics", icon: "chart" },
-        { key: "timetable", href: "#/timetable", label: "Timetable", icon: "calendar" },
         { key: "security", href: "#/security", label: "Alerts", icon: "alert" },
         { key: "audit", href: "#/audit", label: "Audit log", icon: "log" },
         { key: "account", href: "#/account", label: "My account", icon: "user" },
       ],
       tabs: [
-        { key: "home", href: "#/", label: "Home", icon: "home" },
-        { key: "courses", href: "#/courses", label: "Classes", icon: "play" },
+        { key: "home", href: "#/", label: "Courses", icon: "book" },
         { key: "students", href: "#/students", label: "Students", icon: "users" },
+        { key: "register", href: "#/register", label: "Class list", icon: "upload" },
         { key: "settings", href: "#/menu", label: "More", icon: "list" },
       ],
     });
+    OwnerLocation.init();
     SA.router([
-      SA.route("/", overview, { key: "home" }),
+      SA.route("/", coursesHome, { key: "home" }),
+      SA.route("/overview", overview, { key: "overview" }),
       SA.route("/menu", menu, { key: "settings" }),
       SA.route("/register", register, { key: "register" }),
       SA.route("/students", students, { key: "students" }),
       SA.route("/students/:id", student, { key: "students" }),
       SA.route("/lecturers", lecturers, { key: "lecturers" }),
-      SA.route("/courses", classes, { key: "courses" }),
+      SA.route("/courses", coursesHome, { key: "home" }),
       SA.route("/courses/manage", courses, { key: "courses" }),
       SA.route("/courses/:id", (a, p) => ST().course(a, p), { key: "courses" }),
       SA.route("/live/:id", (a) => ST().live(a), { key: "sessions" }),
@@ -76,6 +77,135 @@
         ${c.openSessionId ? `<a class="btn sm" href="#/live/${esc(c.openSessionId)}">Open</a>` : `<button class="btn sm" type="button" data-start="${esc(c.id)}">Start</button>`}</div>`).join("")}</div>
       <p class="small muted center"><a href="#/courses/manage">Edit courses</a></p>`);
     $$("[data-start]", v).forEach((b) => b.addEventListener("click", () => ST().startDialog(b.dataset.start)));
+  }
+
+  /* ---------------------------------------------------------------- owner location (always-on option) */
+  const OwnerLocation = SA.ownerLocation = {
+    watch: null, last: null, lastSent: 0, openIds: [], listeners: new Set(),
+    on() { return localStorage.getItem("sa_owner_loc") === "on"; },
+    init() { if (this.on()) this.start(); },
+    start() {
+      if (!navigator.geolocation) { SA.toast("This device can't share its location.", "error"); return false; }
+      localStorage.setItem("sa_owner_loc", "on");
+      if (this.watch !== null) return true;
+      this.watch = navigator.geolocation.watchPosition((p) => {
+        this.last = { latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy };
+        this.paint();
+        this.listeners.forEach((fn) => fn(this.last));
+        if (Date.now() - this.lastSent > 30000) this.push();
+      }, (e) => {
+        SA.toast(e.code === 1 ? "Allow location for this site." : "Couldn't get your location.", "error");
+        this.stop();
+        this.listeners.forEach((fn) => fn(null));
+      }, { enableHighAccuracy: true, maximumAge: 10000 });
+      this.paint();
+      return true;
+    },
+    stop() {
+      localStorage.setItem("sa_owner_loc", "off");
+      if (this.watch !== null) navigator.geolocation.clearWatch(this.watch);
+      this.watch = null; this.last = null;
+      this.paint();
+    },
+    push() {
+      if (!this.last) return;
+      this.lastSent = Date.now();
+      [...new Set(this.openIds)].forEach((id) => api(`/api/lecturer/sessions/${id}/anchor`, { method: "POST", body: this.last }).catch(() => {}));
+    },
+    current() {
+      if (this.last) return Promise.resolve(this.last);
+      return SA.staff.position().then((p) => { this.last = p; return p; });
+    },
+    paint() {
+      const sw = $("#locSwitch");
+      if (!sw) return;
+      sw.checked = this.on();
+      $("#locText").textContent = !this.on() ? "Off" : this.last ? `On · ±${Math.round(this.last.accuracy)} m` : "Turning on…";
+    },
+  };
+
+  /* ---------------------------------------------------------------- courses home */
+  async function coursesHome() {
+    SA.loading();
+    const rows = await api("/api/admin/courses");
+    OwnerLocation.openIds = rows.filter((c) => c.openSessionId).map((c) => c.openSessionId);
+    const v = SA.view("Courses", `
+      <div class="owner-bar"><label class="switch"><input type="checkbox" id="locSwitch"><span class="slider"></span></label>
+        <div><b>My location</b><small id="locText">Off</small></div>
+        <button class="btn sm secondary" type="button" id="addCourse">+ Course</button></div>
+      <div class="ccards">${rows.map((c) => {
+        const live = !!c.openSessionId;
+        return `<article class="ccard ${live ? "live" : ""}">
+          <header><div><h3>${esc(c.title)}</h3><small>${esc([c.code, c.lecturerName].filter(Boolean).join(" · ") || "No code")}</small></div>
+            <button class="icon-btn" type="button" data-edit="${esc(c.id)}" aria-label="Edit ${esc(c.title)}">${SA.icon.settings}</button></header>
+          <div class="chips"><span>${c.creditHours != null ? esc(c.creditHours) + " credit hrs" : "Credit hrs —"}</span><span>${esc(c.classMinutes)} min</span>
+            <span>${esc(c.geofenceM)} m</span><span>${esc(c.enrolled)} students</span></div>
+          ${live ? `<p class="live-line"><span class="dot-live"></span>Live · ${esc(c.checkedIn)} checked in · ${esc(c.confirmed)} confirmed · ends ${esc(SA.time(c.openEndsAt))}</p>` : ""}
+          <footer><label class="switch"><input type="checkbox" data-toggle="${esc(c.id)}" ${live ? "checked" : ""}><span class="slider"></span></label>
+            <span class="sw-label">${live ? "Attendance on" : "Attendance off"}</span>
+            ${live ? `<a class="btn sm" href="#/live/${esc(c.openSessionId)}">Show QR</a>` : ""}</footer>
+        </article>`;
+      }).join("")}</div>`);
+    OwnerLocation.paint();
+    if (OwnerLocation.on()) OwnerLocation.push();
+
+    $("#locSwitch", v).addEventListener("change", (e) => {
+      if (e.target.checked) { if (OwnerLocation.start()) OwnerLocation.push(); } else OwnerLocation.stop();
+    });
+    $("#addCourse", v).addEventListener("click", () => editCourse(null));
+    $$("[data-edit]", v).forEach((b) => b.addEventListener("click", () => editCourse(rows.find((c) => c.id === b.dataset.edit))));
+    $$("[data-toggle]", v).forEach((t) => t.addEventListener("change", async () => {
+      const c = rows.find((x) => x.id === t.dataset.toggle);
+      t.disabled = true;
+      try {
+        if (t.checked) await activate(c);
+        else {
+          if (!(await SA.confirm("Turn off attendance?", `${c.title}: students who haven't confirmed will be marked absent.`, "Turn off", true))) { t.checked = true; return; }
+          await api(`/api/lecturer/sessions/${c.openSessionId}/close`, { method: "POST", body: {} });
+          SA.toast("Attendance off", "success");
+        }
+        coursesHome();
+      } catch (e) {
+        SA.toast(e.message, "error");
+        t.checked = !t.checked;
+      } finally { t.disabled = false; }
+    }));
+    clearInterval(window.__ownerPoll);
+    window.__ownerPoll = setInterval(() => { if (location.hash === "" || location.hash === "#/" || location.hash === "#/courses") { if (!document.hidden && !document.querySelector("dialog")) coursesHome(); } else clearInterval(window.__ownerPoll); }, 20000);
+  }
+
+  async function activate(c) {
+    const body = { courseId: c.id, classMinutes: c.classMinutes, geofenceMeters: c.geofenceM };
+    if (!OwnerLocation.on()) {
+      const r = await SA.formDialog({ title: "Location is off", intro: "Students must be near you to check in.",
+        fields: [{ name: "online", type: "checkbox", label: "Online class instead (no location check)" }], submit: "Continue" });
+      if (!r) throw new SA.ApiError(0, "CANCELLED", "Cancelled.");
+      if (r.online) Object.assign(body, { mode: "ONLINE", proximityPolicy: "NONE" });
+      else OwnerLocation.start();
+    }
+    if (!body.mode) Object.assign(body, { mode: "IN_PERSON", proximityPolicy: "GEOFENCE" }, await OwnerLocation.current());
+    const s = await api("/api/lecturer/sessions", { method: "POST", body });
+    SA.toast("Attendance on", "success");
+    location.hash = "#/live/" + s.sessionId;
+  }
+
+  async function editCourse(c) {
+    const r = await SA.formDialog({ title: c ? "Edit course" : "New course", fields: [
+      { name: "title", label: "Course name", value: c && c.title, required: true },
+      { name: "code", label: "Course code", value: c && c.code },
+      { name: "lecturerName", label: "Lecturer", value: c && c.lecturerName },
+      { name: "creditHours", label: "Credit hours", type: "number", value: c ? c.creditHours ?? "" : 3 },
+      { name: "classMinutes", label: "Duration (minutes)", type: "number", value: c ? c.classMinutes : 120, required: true },
+      { name: "geofenceMeters", label: "Students within (metres)", type: "number", value: c ? c.geofenceM : 50, required: true },
+    ], submit: "Save" });
+    if (!r) return;
+    const body = { ...r, creditHours: r.creditHours === "" ? null : Number(r.creditHours), classMinutes: Number(r.classMinutes), geofenceMeters: Number(r.geofenceMeters), altCode: c ? c.altCode : null };
+    await busy(null, async () => {
+      if (c) await api("/api/admin/courses/" + c.id, { method: "PUT", body });
+      else await api("/api/admin/courses", { method: "POST", body });
+      SA.toast("Saved", "success");
+      coursesHome();
+    });
   }
 
   function menu() {
