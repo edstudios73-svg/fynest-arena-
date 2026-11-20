@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.List;
 import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -76,6 +77,7 @@ public class AuthFilter extends OncePerRequestFilter {
             Role r = user.role();
             boolean ok;
             if (path.startsWith("/api/student/")) ok = r == Role.STUDENT;
+            else if (r == Role.ADMIN && (path.startsWith("/api/lecturer/") || path.startsWith("/api/admin/"))) ok = courseRepAllowed(req.getMethod(), path);
             else if (path.startsWith("/api/lecturer/")) ok = r == Role.LECTURER || r.isAdmin();
             else if (path.startsWith("/api/admin/")) ok = r.isAdmin();
             else if (path.startsWith("/api/super/")) ok = r == Role.SUPER_ADMIN;
@@ -88,6 +90,23 @@ public class AuthFilter extends OncePerRequestFilter {
         } finally {
             AuthContext.clear();
         }
+    }
+
+    private static final String UUID_RE = "[0-9a-fA-F-]{36}";
+    /** Course reps (role ADMIN): see and edit courses, turn attendance on/off, show the board and see who checked in. Nothing else. */
+    private static final List<String[]> COURSE_REP = List.of(
+            new String[] {"GET", "/api/admin/courses"},
+            new String[] {"PUT", "/api/admin/courses/" + UUID_RE},
+            new String[] {"POST", "/api/lecturer/sessions"},
+            new String[] {"GET", "/api/lecturer/sessions/" + UUID_RE},
+            new String[] {"GET", "/api/lecturer/sessions/" + UUID_RE + "/challenge"},
+            new String[] {"GET", "/api/lecturer/sessions/" + UUID_RE + "/stream"},
+            new String[] {"POST", "/api/lecturer/sessions/" + UUID_RE + "/anchor"},
+            new String[] {"POST", "/api/lecturer/sessions/" + UUID_RE + "/close"});
+
+    static boolean courseRepAllowed(String method, String path) {
+        for (String[] a : COURSE_REP) if (a[0].equalsIgnoreCase(method) && path.matches(a[1])) return true;
+        return false;
     }
 
     private boolean originAllowed(HttpServletRequest req) {

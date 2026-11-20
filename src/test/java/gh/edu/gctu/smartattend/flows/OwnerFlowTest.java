@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -57,6 +58,50 @@ class OwnerFlowTest extends IntegrationTest {
         ch = expectOk(c.post("/api/auth/student/login/face/challenge", null)).json();
         assertTrue(expectOk(faceUpload(c, "/api/auth/student/login/face", ch, "alice", null)).json().path("signedIn").asBoolean());
         assertEquals(200, c.get("/api/me").status());
+    }
+
+    @Test
+    void courseRepCanRunCoursesButNothingElse() {
+        seedStudents(2);
+        verifyRegister();
+        Client rep = admin("ADMIN");
+        String cid = courseId("CSNS 141").toString();
+        assertEquals(200, rep.get("/api/admin/courses").status());
+        Map<String, Object> edit = new HashMap<>(Map.of("code", "CSNS 141",
+                "title", "Digital Electronics", "lecturerName", "Dr Rep Edit", "classMinutes", 90, "geofenceMeters", 50));
+        assertEquals(200, rep.put("/api/admin/courses/" + cid, edit).status(), "rep edits a course");
+        String sid = start(rep);
+        assertEquals(200, rep.get("/api/lecturer/sessions/" + sid + "/challenge").status(), "rep shows the board");
+        assertEquals(200, rep.get("/api/lecturer/sessions/" + sid).status(), "rep sees who checked in");
+        // Not for course reps
+        assertEquals(403, rep.get("/api/admin/students").status());
+        assertEquals(403, rep.get("/api/admin/settings").status());
+        assertEquals(403, rep.post("/api/admin/courses", edit).status());
+        assertEquals(403, rep.get("/api/admin/audit").status());
+        assertEquals(403, rep.post("/api/lecturer/sessions/" + sid + "/records/" + db.scalar("SELECT id FROM students LIMIT 1", UUID.class),
+                Map.of("status", "PRESENT", "reason", "nope")).status());
+        assertEquals(200, rep.post("/api/lecturer/sessions/" + sid + "/close", Map.of()).status(), "rep turns attendance off");
+        assertEquals(403, rep.post("/api/admin/sessions/" + sid + "/mark-all", Map.of("status", "PRESENT")).status());
+        assertEquals(403, rep.post("/api/admin/courses/" + cid + "/manual-class", Map.of()).status());
+    }
+
+    @Test
+    void superAdminMarksAClassWhereAttendanceWasNotTurnedOn() {
+        seedStudents(3);
+        verifyRegister();
+        Client sup = admin("SUPER_ADMIN");
+        String cid = courseId("CSNS 141").toString();
+        JsonNode r = expectOk(sup.post("/api/admin/courses/" + cid + "/manual-class", Map.of("date", java.time.LocalDate.now().minusDays(1).toString(), "everyonePresent", true))).json();
+        String sid = r.path("sessionId").asText();
+        assertEquals(3, r.path("students").asInt());
+        assertEquals(3, db.scalar("SELECT count(*)::int FROM attendance_records WHERE status = 'PRESENT'", Integer.class));
+        // remove one student's mark, then clear all
+        UUID st = db.scalar("SELECT id FROM students ORDER BY index_number LIMIT 1", UUID.class);
+        expectOk(sup.post("/api/lecturer/sessions/" + sid + "/records/" + st, Map.of("status", "ABSENT", "reason", "Was not in class")));
+        assertEquals(2, db.scalar("SELECT count(*)::int FROM attendance_records WHERE status = 'PRESENT'", Integer.class));
+        expectOk(sup.post("/api/admin/sessions/" + sid + "/mark-all", Map.of("status", "ABSENT")));
+        assertEquals(0, db.scalar("SELECT count(*)::int FROM attendance_records WHERE status = 'PRESENT'", Integer.class));
+        assertEquals("CLOSED", db.scalar("SELECT status FROM attendance_sessions WHERE id = :id::uuid", String.class, "id", sid));
     }
 
     @Test

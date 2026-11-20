@@ -124,7 +124,8 @@
       <form id="f" novalidate><div class="field"><label for="em">Email</label><input id="em" type="email" autocomplete="username" required></div>
       <div class="field"><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required></div>
       <div class="err"></div><button class="btn block lg" data-busy="Signing in…">Sign in</button></form>`);
-    $("#em").focus();
+    const pre = new URLSearchParams(location.search).get("email");
+    if (pre) { $("#em").value = pre; $("#pw").focus(); } else $("#em").focus();
     $("#f").addEventListener("submit", (e) => {
       e.preventDefault();
       busy($("button", e.target), async () => {

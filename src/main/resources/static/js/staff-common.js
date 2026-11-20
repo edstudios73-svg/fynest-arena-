@@ -136,7 +136,7 @@
       <section class="stack">
         <div class="stats" id="liveStats"></div>
         <div class="panel tight live-actions"><span class="small muted" id="closes"></span>
-          <span class="btns"><button class="btn ghost sm" id="cancelBtn" type="button">Cancel session</button><button class="btn danger sm" id="closeBtn" type="button">Turn off attendance</button></span></div>
+          <span class="btns">${SA.courseRep ? "" : `<button class="btn ghost sm" id="cancelBtn" type="button">Cancel session</button>`}<button class="btn danger sm" id="closeBtn" type="button">Turn off attendance</button></span></div>
         <div class="panel"><h3>Signed in</h3><ul class="feed" id="feed"></ul></div>
         <div class="panel"><h3>Failed attempts</h3><ul class="feed" id="fails"></ul></div>
       </section></div>`);
@@ -240,7 +240,7 @@
       if (!(await SA.confirm("Close attendance?", "The code and QR stop working immediately. Enrolled students without a record are marked absent.", "Close attendance", true))) return;
       busy($("#closeBtn", v), async () => { const r = await api(`/api/lecturer/sessions/${id}/close`, { method: "POST", body: {} }); SA.toast(`Attendance off · ${r.markedAbsent + (r.leftEarly || 0)} absent`, "success"); ST.boardOff(id, s.courseTitle); });
     });
-    $("#cancelBtn", v).addEventListener("click", async () => {
+    if ($("#cancelBtn", v)) $("#cancelBtn", v).addEventListener("click", async () => {
       const r = await SA.formDialog({ title: "Cancel this session?", intro: "Cancelled sessions don't count towards anyone's attendance percentage.", fields: [{ name: "reason", label: "Reason", type: "text", required: true }], submit: "Cancel session", danger: true });
       if (!r) return;
       busy(null, async () => { await api(`/api/lecturer/sessions/${id}/cancel`, { method: "POST", body: r }); ST.boardOff(id, s.courseTitle); });
@@ -257,13 +257,19 @@
     const byStudent = Object.fromEntries(snap.records.map((r) => [r.studentId, r]));
     const v = SA.view("Session record", `<p class="muted">${esc(s.courseCode || "")} ${esc(s.courseTitle)} · ${esc(SA.date(s.sessionDate))} · ${esc(SA.label(s.mode))}${s.venue ? " · " + esc(s.venue) : ""} · ${SA.badge(s.status)}</p>
       <div class="stats">${Object.entries(snap.counts).map(([k, n]) => `<div class="stat"><b>${n}</b><span>${esc(SA.label(k))}</span></div>`).join("")}</div>
-      <div class="panel"><div class="panel-head"><h3>Students</h3>${ST.reportButtons("/api/lecturer/reports/session/" + id, "Session")}</div>
+      ${SA.isSuper && s.status === "CLOSED" ? `<div class="row"><button class="btn sm success" type="button" data-all="PRESENT">Everyone present</button><button class="btn sm secondary" type="button" data-all="ABSENT">Clear all marks</button></div><br>` : ""}
+      <div class="panel"><div class="panel-head"><h3>Students</h3>${SA.courseRep ? "" : ST.reportButtons("/api/lecturer/reports/session/" + id, "Session")}</div>
       ${SA.table([{ label: "Index", key: "indexNumber" }, { label: "Name", key: "name" },
         { label: "Status", html: (r) => byStudent[r.studentId] ? SA.badge(byStudent[r.studentId].status) : SA.badge("ABSENT") },
         { label: "Time", get: (r) => byStudent[r.studentId] && byStudent[r.studentId].status !== "ABSENT" ? SA.time(byStudent[r.studentId].submittedAt) : "—" },
         { label: "Note", get: (r) => (byStudent[r.studentId] && byStudent[r.studentId].reason) || "" },
-        { label: "", html: (r) => s.status === "CANCELLED" ? "" : `<button class="btn ghost sm" data-mark="${esc(r.studentId)}" data-name="${esc(r.name)}">Change</button>` }], snap.roster)}</div>`);
+        { label: "", html: (r) => s.status === "CANCELLED" || SA.courseRep ? "" : `<button class="btn ghost sm" data-mark="${esc(r.studentId)}" data-name="${esc(r.name)}">Change</button>` }], snap.roster)}</div>`);
     ST.bindDownloads(v);
+    $$("[data-all]", v).forEach((b) => b.addEventListener("click", async () => {
+      const present = b.dataset.all === "PRESENT";
+      if (!(await SA.confirm(present ? "Mark everyone present?" : "Clear all marks?", present ? "Every student in this class is marked present." : "Every student in this class is set to absent.", present ? "Mark present" : "Clear", !present))) return;
+      busy(null, async () => { const r = await api(`/api/admin/sessions/${id}/mark-all`, { method: "POST", body: { status: b.dataset.all } }); SA.toast(`${r.updated} students updated`, "success"); ST.session([id]); });
+    }));
     $$("[data-mark]", v).forEach((b) => b.addEventListener("click", async () => {
       const r = await SA.formDialog({ title: "Change attendance", intro: b.dataset.name + ". Manual changes are recorded in the audit log.",
         fields: [{ name: "status", label: "New status", type: "select", value: "EXCUSED", options: ["PRESENT", "LATE", "EXCUSED", "ABSENT", "REJECTED"].map((x) => ({ value: x, label: SA.label(x) })) },

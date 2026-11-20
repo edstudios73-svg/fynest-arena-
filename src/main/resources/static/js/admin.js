@@ -15,9 +15,15 @@
     if (me.role === "LECTURER") { location.href = "/lecturer.html"; return; }
     if (me.mustChangePassword) { location.href = "/admin-login.html"; return; }
     const sup = me.role === "SUPER_ADMIN";
+    SA.isSuper = sup;
+    SA.courseRep = me.role === "ADMIN";
+    const repNav = [
+      { key: "home", href: "#/", label: "Courses", icon: "book" },
+      { key: "account", href: "#/account", label: "My account", icon: "user" },
+    ];
     SA.shell({
       me, home: "#/", cls: "staff",
-      nav: [
+      nav: SA.courseRep ? repNav : [
         { key: "home", href: "#/", label: "Courses", icon: "book" },
         { key: "students", href: "#/students", label: "Students", icon: "users" },
         { key: "register", href: "#/register", label: "Class list", icon: "upload" },
@@ -31,7 +37,7 @@
         { key: "audit", href: "#/audit", label: "Audit log", icon: "log" },
         { key: "account", href: "#/account", label: "My account", icon: "user" },
       ],
-      tabs: [
+      tabs: SA.courseRep ? repNav : [
         { key: "home", href: "#/", label: "Courses", icon: "book" },
         { key: "students", href: "#/students", label: "Students", icon: "users" },
         { key: "register", href: "#/register", label: "Class list", icon: "upload" },
@@ -124,6 +130,21 @@
     },
   };
 
+  /** Super admin: record a class where attendance wasn't turned on, then adjust students on the record. */
+  async function manualClass(courseId, title) {
+    const today = new Date().toISOString().slice(0, 10);
+    const r = await SA.formDialog({ title: "Mark manually", intro: title + " · for a class where attendance wasn't turned on.",
+      fields: [{ name: "date", label: "Class date", type: "date", value: today, required: true },
+        { name: "everyone", label: "Start with", type: "select", value: "PRESENT", options: [{ value: "PRESENT", label: "Everyone present" }, { value: "ABSENT", label: "Everyone absent" }] }],
+      submit: "Create" });
+    if (!r) return;
+    busy(null, async () => {
+      const out = await api(`/api/admin/courses/${courseId}/manual-class`, { method: "POST", body: { date: r.date, everyonePresent: r.everyone === "PRESENT" } });
+      SA.toast(`Class recorded · ${out.students} students`, "success");
+      location.hash = "#/sessions/" + out.sessionId;
+    });
+  }
+
   /* ---------------------------------------------------------------- courses home */
   async function coursesHome() {
     SA.loading();
@@ -132,7 +153,7 @@
     const v = SA.view("Courses", `
       <div class="owner-bar"><label class="switch"><input type="checkbox" id="locSwitch"><span class="slider"></span></label>
         <div><b>My location</b><small id="locText">Off</small></div>
-        <button class="btn sm secondary" type="button" id="addCourse">+ Course</button></div>
+        ${SA.isSuper ? `<button class="btn sm secondary" type="button" id="addCourse">+ Course</button>` : ""}</div>
       <div class="ccards">${rows.map((c) => {
         const live = !!c.openSessionId;
         return `<article class="ccard ${live ? "live" : ""}">
@@ -143,7 +164,8 @@
           ${live ? `<p class="live-line"><span class="dot-live"></span>Live · ${esc(c.checkedIn)} checked in · ${esc(c.confirmed)} confirmed · ends ${esc(SA.time(c.openEndsAt))}</p>` : ""}
           <footer><label class="switch"><input type="checkbox" data-toggle="${esc(c.id)}" ${live ? "checked" : ""}><span class="slider"></span></label>
             <span class="sw-label">${live ? "Attendance on" : "Attendance off"}</span>
-            ${live ? `<a class="btn sm" href="#/live/${esc(c.openSessionId)}?board=1">Show on board</a>` : ""}</footer>
+            ${live ? `<a class="btn sm" href="#/live/${esc(c.openSessionId)}?board=1">Show on board</a>` : ""}
+            ${!live && SA.isSuper ? `<button class="btn sm ghost" type="button" data-manual="${esc(c.id)}" data-title="${esc(c.title)}">Mark manually</button>` : ""}</footer>
         </article>`;
       }).join("")}</div>`);
     OwnerLocation.paint();
@@ -152,7 +174,8 @@
     $("#locSwitch", v).addEventListener("change", (e) => {
       if (e.target.checked) { if (OwnerLocation.start()) OwnerLocation.push(); } else OwnerLocation.stop();
     });
-    $("#addCourse", v).addEventListener("click", () => editCourse(null));
+    if ($("#addCourse", v)) $("#addCourse", v).addEventListener("click", () => editCourse(null));
+    $$("[data-manual]", v).forEach((b) => b.addEventListener("click", () => manualClass(b.dataset.manual, b.dataset.title)));
     $$("[data-edit]", v).forEach((b) => b.addEventListener("click", () => editCourse(rows.find((c) => c.id === b.dataset.edit))));
     $$("[data-toggle]", v).forEach((t) => t.addEventListener("change", async () => {
       const c = rows.find((x) => x.id === t.dataset.toggle);

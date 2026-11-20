@@ -256,6 +256,59 @@ public class AttendanceService {
         return Json.obj("updated", true, "status", status);
     }
 
+    /**
+     * Super admin: record a class where attendance was never turned on. Creates a closed class for the date with
+     * everyone marked PRESENT or ABSENT (manual); individual students can then be changed on the class record.
+     */
+    @Transactional
+    public Map<String, Object> manualClass(CurrentUser u, UUID courseId, LocalDate date, boolean everyonePresent) {
+        if (date == null) date = LocalDate.now(AcademicCalendar.ZONE);
+        if (date.isAfter(LocalDate.now(AcademicCalendar.ZONE))) throw ApiException.badRequest("FUTURE_DATE", "Pick today or a past date.");
+        UUID semesterId = calendar.currentSemesterId();
+        UUID groupId = db.scalar("SELECT class_group_id FROM class_timetables WHERE course_id = :c AND semester_id = :s LIMIT 1",
+                UUID.class, "c", courseId, "s", semesterId);
+        if (groupId == null) throw ApiException.conflict("NO_CLASS", "This course has no class assigned in the current semester.");
+        UUID sid = db.insertReturningId("""
+                INSERT INTO attendance_sessions(course_id, class_group_id, semester_id, started_by, session_date, mode, status,
+                    closes_at, closed_at, closed_by, ends_at, checkout_minutes, late_after_minutes, require_face, require_passkey,
+                    proximity_policy, notes)
+                VALUES (:c, :g, :sem, :u, :d, 'IN_PERSON', 'CLOSED', now(), now(), :u, now(), 0, 0, false, false, 'NONE',
+                    'Marked by admin (attendance was not turned on)') RETURNING id""",
+                "c", courseId, "g", groupId, "sem", semesterId, "u", u.userId(), "d", date);
+        int n = markAllInternal(u, sid, everyonePresent ? "PRESENT" : "ABSENT", "Class recorded by admin");
+        audit.log("ATTENDANCE_MANUAL_CLASS", "attendance_session", sid, Json.obj("date", date.toString(), "students", n, "everyonePresent", everyonePresent));
+        return Json.obj("sessionId", sid, "students", n);
+    }
+
+    /** Super admin: set every enrolled student of a class to one status (e.g. everyone present, or remove all marks). */
+    @Transactional
+    public Map<String, Object> markAll(CurrentUser u, UUID sessionId, String status, String reason) {
+        Map<String, Object> s = access.requireSession(u, sessionId);
+        if (!"CLOSED".equals(s.get("status"))) throw ApiException.conflict("SESSION_NOT_CLOSED", "Turn attendance off first.");
+        if (!MANUAL_STATUSES.contains(status)) throw ApiException.badRequest("INVALID_STATUS", "Invalid attendance status.");
+        int n = markAllInternal(u, sessionId, status, reason == null || reason.isBlank() ? "Changed by admin" : reason);
+        audit.log("ATTENDANCE_MANUAL_CHANGE_ALL", "attendance_session", sessionId, Json.obj("status", status, "students", n));
+        live.publish(sessionId, "record");
+        return Json.obj("updated", n, "status", status);
+    }
+
+    private int markAllInternal(CurrentUser u, UUID sessionId, String status, String reason) {
+        List<UUID> ids = db.jdbc().queryForList("""
+                SELECT st.id FROM attendance_sessions s
+                JOIN course_enrollments e ON e.course_id = s.course_id AND e.semester_id = s.semester_id AND e.status = 'ENROLLED'
+                JOIN students st ON st.id = e.student_id AND st.class_group_id = s.class_group_id
+                WHERE s.id = :s""", Db.params("s", sessionId), UUID.class);
+        for (UUID st : ids) {
+            db.update("""
+                    INSERT INTO attendance_records(session_id, student_id, status, verification_status, reference_no, updated_by, reason)
+                    VALUES (:s, :st, :status, 'MANUAL', :ref, :u, :r)
+                    ON CONFLICT (session_id, student_id) DO UPDATE SET status = EXCLUDED.status, verification_status = 'MANUAL',
+                        updated_by = EXCLUDED.updated_by, reason = EXCLUDED.reason, updated_at = now()""",
+                    "s", sessionId, "st", st, "status", status, "ref", referenceNo(), "u", u.userId(), "r", reason);
+        }
+        return ids.size();
+    }
+
     // ===================================================================== Student side
 
     public List<Map<String, Object>> activeForStudent(UUID studentId) {

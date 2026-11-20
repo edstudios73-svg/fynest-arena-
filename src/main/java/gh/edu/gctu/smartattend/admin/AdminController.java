@@ -32,10 +32,13 @@ public class AdminController {
     private final NotificationService notifications;
     private final SessionService sessions;
     private final FaceService face;
+    private final gh.edu.gctu.smartattend.attendance.AttendanceService attendance;
 
     public AdminController(Db db, AuditService audit, SettingsService settings, ImportService imports, AnalyticsService analytics,
                            AcademicCalendar calendar, ReportService reports, ReportRenderer renderer, NotificationService notifications,
-                           SessionService sessions, FaceService face) {
+                           SessionService sessions, FaceService face,
+                           gh.edu.gctu.smartattend.attendance.AttendanceService attendance) {
+        this.attendance = attendance;
         this.db = db;
         this.audit = audit;
         this.settings = settings;
@@ -315,6 +318,23 @@ public class AdminController {
     }
 
     /** The ONLY way to unlock a student's face: erase the template (audited). Student re-enrols at next sign-in. */
+    public record ManualClassBody(java.time.LocalDate date, Boolean everyonePresent) {}
+
+    /** Record a class where attendance was not turned on (super admin). */
+    @PostMapping("/courses/{id}/manual-class")
+    public Map<String, Object> manualClass(@PathVariable UUID id, @RequestBody ManualClassBody b) {
+        CurrentUser u = admin();
+        return attendance.manualClass(u, id, b.date(), b.everyonePresent() == null || b.everyonePresent());
+    }
+
+    public record MarkAllBody(String status, String reason) {}
+
+    /** Set everyone in a closed class to one status (super admin). */
+    @PostMapping("/sessions/{id}/mark-all")
+    public Map<String, Object> markAll(@PathVariable UUID id, @RequestBody MarkAllBody b) {
+        return attendance.markAll(admin(), id, b.status(), b.reason());
+    }
+
     @PostMapping("/students/{id}/biometric/delete")
     public Map<String, Object> deleteBiometric(@PathVariable UUID id, @RequestBody ReasonBody b) {
         admin();

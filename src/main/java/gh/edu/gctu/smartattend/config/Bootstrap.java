@@ -39,6 +39,33 @@ public class Bootstrap implements ApplicationRunner {
             log.info("Super Administrator was created by another instance starting at the same time.");
         }
         seedRegisterIfEmpty();
+        seedCourseReps(System.getenv("SMARTATTEND_COURSE_REPS"));
+    }
+
+    /**
+     * Course rep accounts (role ADMIN) from SMARTATTEND_COURSE_REPS = "Name:email:password;Name:email:password".
+     * Kept in the hosting platform's encrypted settings, never in git. Existing emails are left untouched.
+     */
+    void seedCourseReps(String spec) {
+        if (spec == null || spec.isBlank()) return;
+        UUID inst = db.scalar("SELECT id FROM institutions ORDER BY created_at LIMIT 1", UUID.class);
+        for (String entry : spec.split(";")) {
+            String[] p = entry.trim().split(":", 3);
+            if (p.length != 3 || p[0].isBlank() || p[1].isBlank() || p[2].isEmpty()) continue;
+            String email = p[1].trim().toLowerCase();
+            try {
+                Integer exists = db.scalar("SELECT count(*)::int FROM app_users WHERE lower(email) = :e", Integer.class, "e", email);
+                if (exists != null && exists > 0) continue;
+                UUID uid = db.insertReturningId("""
+                        INSERT INTO app_users(role, email, password_hash, status, must_change_password)
+                        VALUES ('ADMIN', :e, :h, 'ACTIVE', false) RETURNING id""", "e", email, "h", AccountController.BCRYPT.encode(p[2]));
+                db.update("INSERT INTO administrators(user_id, full_name, institution_id) VALUES (:u, :n, :i)", "u", uid, "n", p[0].trim(), "i", inst);
+                audit.logAs(null, "SYSTEM", "COURSE_REP_CREATED", "user", uid, Json.obj("email", email));
+                log.info("Course rep account created for {}", email);
+            } catch (org.springframework.dao.DuplicateKeyException raced) {
+                log.info("Course rep {} was created by another instance.", email);
+            }
+        }
     }
 
     /**

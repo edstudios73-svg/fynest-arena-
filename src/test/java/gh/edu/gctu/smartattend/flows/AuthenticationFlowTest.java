@@ -176,7 +176,7 @@ class AuthenticationFlowTest extends IntegrationTest {
         assertEquals("PENDING_APPROVAL", s.client().get("/api/me").json().path("status").asText());
         Client.Resp r = s.client().post("/api/student/attendance/begin", Map.of("otp", "123456", "sessionId", UUID.randomUUID().toString()));
         assertEquals(403, r.status());
-        Client admin = admin("ADMIN");
+        Client admin = admin("SUPER_ADMIN");
         UUID sid = db.scalar("SELECT id FROM students WHERE index_number = 'TEST00001'", UUID.class);
         expectOk(admin.post("/api/admin/students/" + sid + "/approve", Map.of("reason", "ID card checked")));
         assertEquals("ACTIVE", s.client().get("/api/me").json().path("status").asText());

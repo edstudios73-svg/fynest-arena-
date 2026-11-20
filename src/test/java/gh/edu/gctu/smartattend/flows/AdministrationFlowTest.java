@@ -51,7 +51,7 @@ class AdministrationFlowTest extends IntegrationTest {
 
     @Test
     void adminImportsRegisterAndDiscrepancyMustBeVerified() throws Exception {
-        Client admin = admin("ADMIN");
+        Client admin = admin("SUPER_ADMIN");
         UUID group = groupId();
         Client.Resp prev = admin.multipart("/api/admin/imports", Map.of("classGroupId", group.toString()),
                 List.of(new MockMultipartFile("file", "DIPLOMA IN COMPUTER SCIENCE GROUPS.xlsx",
@@ -84,7 +84,7 @@ class AdministrationFlowTest extends IntegrationTest {
 
     @Test
     void importReportsDuplicatesAndMissingFieldsWithoutSilentlyDroppingThem() throws Exception {
-        Client admin = admin("ADMIN");
+        Client admin = admin("SUPER_ADMIN");
         JsonNode p = expectOk(admin.multipart("/api/admin/imports", Map.of("classGroupId", groupId().toString()),
                 List.of(new MockMultipartFile("file", "register.xlsx", "application/octet-stream", workbook(10, true))))).json();
         assertEquals(12, p.path("rowCount").asInt());
@@ -98,7 +98,7 @@ class AdministrationFlowTest extends IntegrationTest {
 
     @Test
     void importRejectsWrongStructure() {
-        Client admin = admin("ADMIN");
+        Client admin = admin("SUPER_ADMIN");
         JsonNode p = expectOk(admin.multipart("/api/admin/imports", Map.of("classGroupId", groupId().toString()),
                 List.of(new MockMultipartFile("file", "x.csv", "text/csv", "Name,Email\na,b\n".getBytes())))).json();
         assertFalse(p.path("valid").asBoolean());
@@ -144,7 +144,7 @@ class AdministrationFlowTest extends IntegrationTest {
         for (JsonNode c : dash.path("courses")) {
             if ("CSNS 141".equals(c.path("code").asText())) assertEquals(50.0, c.path("percentage").asDouble());
         }
-        Client admin = admin("ADMIN");
+        Client admin = admin("SUPER_ADMIN");
         String recs = admin.get("/api/admin/reports/records?format=csv&courseId=" + courseId("CSNS 141")).text();
         assertEquals(8, recs.lines().filter(l -> l.contains("CSNS 141")).count(), "2 sessions × 4 students");
     }
@@ -166,7 +166,7 @@ class AdministrationFlowTest extends IntegrationTest {
         // Not approved yet → cannot register a new passkey
         assertEquals(403, newPhone.post("/api/auth/student/recover/passkey/options", null).status());
 
-        Client admin = admin("ADMIN");
+        Client admin = admin("SUPER_ADMIN");
         String reqId = sub.path("requestId").asText();
         assertEquals("NOTE_REQUIRED", admin.post("/api/admin/recovery/" + reqId + "/decide", Map.of("approve", true, "note", "")).code());
         expectOk(admin.post("/api/admin/recovery/" + reqId + "/decide", Map.of("approve", true, "note", "Student ID card checked in person")));
@@ -222,11 +222,12 @@ class AdministrationFlowTest extends IntegrationTest {
 
     @Test
     void securityPoliciesRequireSuperAdmin() {
-        Client admin = admin("ADMIN");
+        Client admin = admin("ADMIN"); // course rep: no settings at all
         assertEquals(403, admin.put("/api/admin/settings", Map.of("key", "security.faceOnAttendance", "value", "false")).status());
-        expectOk(admin.put("/api/admin/settings", Map.of("key", "attendance.lateAfterMinutes", "value", "10")));
-        assertEquals("INVALID_SETTING", admin.put("/api/admin/settings", Map.of("key", "attendance.lateAfterMinutes", "value", "-5")).code());
+        assertEquals(403, admin.put("/api/admin/settings", Map.of("key", "attendance.lateAfterMinutes", "value", "10")).status());
         Client sup = admin("SUPER_ADMIN");
+        expectOk(sup.put("/api/admin/settings", Map.of("key", "attendance.lateAfterMinutes", "value", "10")));
+        assertEquals("INVALID_SETTING", sup.put("/api/admin/settings", Map.of("key", "attendance.lateAfterMinutes", "value", "-5")).code());
         expectOk(sup.put("/api/admin/settings", Map.of("key", "face.matchThreshold", "value", "0.45")));
         assertEquals(403, admin.get("/api/super/structure").status());
         expectOk(sup.get("/api/super/structure"));
@@ -235,7 +236,7 @@ class AdministrationFlowTest extends IntegrationTest {
 
     @Test
     void auditLogIsAppendOnly() {
-        admin("ADMIN").post("/api/admin/settings", Map.of());
+        admin("SUPER_ADMIN").post("/api/admin/settings", Map.of());
         db.update("INSERT INTO audit_logs(action) VALUES ('TEST')");
         assertThrows(Exception.class, () -> db.update("UPDATE audit_logs SET action = 'X'"));
         assertThrows(Exception.class, () -> db.update("DELETE FROM audit_logs"));
@@ -246,7 +247,7 @@ class AdministrationFlowTest extends IntegrationTest {
         seedStudents(1);
         verifyRegister();
         register("TEST00001", "alice");
-        Client admin = admin("ADMIN");
+        Client admin = admin("SUPER_ADMIN");
         UUID sid = db.scalar("SELECT id FROM students", UUID.class);
         String body = admin.get("/api/admin/students/" + sid).text();
         assertFalse(body.contains("template"), body);
@@ -255,7 +256,7 @@ class AdministrationFlowTest extends IntegrationTest {
 
     @Test
     void lecturerTemporaryPasswordMustBeChanged() {
-        Client admin = admin("ADMIN");
+        Client admin = admin("SUPER_ADMIN");
         String lid = admin.get("/api/admin/lecturers").json().get(0).path("id").asText();
         assertEquals("EMAIL_REQUIRED", admin.post("/api/admin/lecturers/" + lid + "/credentials", null).code());
         expectOk(admin.put("/api/admin/lecturers/" + lid, Map.of("fullName", "Adusei-Poku Afful", "title", "Dr.", "email", "afful@lecturer.test")));

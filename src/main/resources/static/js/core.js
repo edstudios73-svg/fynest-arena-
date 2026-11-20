@@ -63,7 +63,7 @@
   SA.hm = (t) => (t ? String(t).slice(0, 5) : "");
   SA.pct = (p) => (p == null ? "—" : Number(p).toFixed(p % 1 === 0 ? 0 : 1) + "%");
   SA.days = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-  SA.label = (s) => (s ? String(s).replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : "");
+  SA.label = (s) => (s === "ADMIN" ? "Course rep" : s ? String(s).replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : "");
   SA.badge = (s) => `<span class="badge ${SA.esc(s)}">${SA.esc(SA.label(s))}</span>`;
   SA.courseName = (c) => (c.code || c.courseCode ? SA.esc(c.code || c.courseCode) + " · " : "") + SA.esc(c.title || c.courseTitle);
   SA.initials = (name) => String(name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0]).join("").toUpperCase();
