@@ -50,7 +50,7 @@
       SA.route("/courses", coursesHome, { key: "home" }),
       SA.route("/courses/manage", courses, { key: "courses" }),
       SA.route("/courses/:id", (a, p) => ST().course(a, p), { key: "courses" }),
-      SA.route("/live/:id", (a) => ST().live(a), { key: "sessions" }),
+      SA.route("/live/:id", (a, p) => ST().live(a, p), { key: "home" }),
       SA.route("/sessions/:id", (a) => ST().session(a), { key: "sessions" }),
       SA.route("/sessions", sessions, { key: "sessions" }),
       SA.route("/timetable", timetable, { key: "timetable" }),
@@ -143,7 +143,7 @@
           ${live ? `<p class="live-line"><span class="dot-live"></span>Live · ${esc(c.checkedIn)} checked in · ${esc(c.confirmed)} confirmed · ends ${esc(SA.time(c.openEndsAt))}</p>` : ""}
           <footer><label class="switch"><input type="checkbox" data-toggle="${esc(c.id)}" ${live ? "checked" : ""}><span class="slider"></span></label>
             <span class="sw-label">${live ? "Attendance on" : "Attendance off"}</span>
-            ${live ? `<a class="btn sm" href="#/live/${esc(c.openSessionId)}">Show QR</a>` : ""}</footer>
+            ${live ? `<a class="btn sm" href="#/live/${esc(c.openSessionId)}?board=1">Show on board</a>` : ""}</footer>
         </article>`;
       }).join("")}</div>`);
     OwnerLocation.paint();
@@ -186,7 +186,7 @@
     if (!body.mode) Object.assign(body, { mode: "IN_PERSON", proximityPolicy: "GEOFENCE" }, await OwnerLocation.current());
     const s = await api("/api/lecturer/sessions", { method: "POST", body });
     SA.toast("Attendance on", "success");
-    location.hash = "#/live/" + s.sessionId;
+    location.hash = "#/live/" + s.sessionId + "?board=1";
   }
 
   async function editCourse(c) {

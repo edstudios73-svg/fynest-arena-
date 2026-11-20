@@ -93,8 +93,13 @@ await admin.waitForSelector("#qr svg");
 await admin.waitForFunction(() => /^\d{3} \d{3}$/.test(document.querySelector("#otp").textContent));
 await admin.waitForSelector("#loc:has-text('Location on')");
 ok(true, "class started with QR, code and admin location on");
+ok(await admin.isVisible("#proj.fullscreen"), "turning attendance on opens the board view");
 await admin.screenshot({ path: `${SHOTS}/admin-live.png` });
 const code = async () => (await admin.textContent("#otp")).replace(/\s/g, "");
+const firstCode = await code();
+const firstQr = await admin.innerHTML("#qr");
+await admin.waitForFunction((c) => document.querySelector("#otp").textContent.replace(/\s/g, "") !== c, firstCode, { timeout: 80000 });
+ok((await admin.innerHTML("#qr")) !== firstQr, `code and QR change after 60 s (${firstCode} → ${await code()})`);
 
 console.log("Student");
 const idx = "E2E000007";
@@ -158,9 +163,11 @@ await stu.waitForSelector("text=Attendance marked", { timeout: 20000 });
 ok(await stu.isVisible(".badge.PRESENT"), "end-of-class confirmation → PRESENT");
 await stu.screenshot({ path: `${SHOTS}/student-marked-mobile.png` });
 
-await admin.click("#closeBtn");
-await admin.click("dialog button:has-text('Close attendance')");
-await admin.waitForSelector("#pageTitle:has-text('Session record')");
+await admin.click("#offBtn");
+await admin.click("dialog button:has-text('Turn off')");
+await admin.waitForSelector(".off-mark:has-text('Attendance off')");
+ok((await admin.locator("#qr, #otp").count()) === 0, "turning attendance off removes the QR code and code from the board");
+await admin.screenshot({ path: `${SHOTS}/admin-board-off.png` });
 ok(sql(`SELECT count(*) FROM attendance_records WHERE status='ABSENT'`) === "133", "everyone else marked absent on close");
 
 console.log("Registration face screen");

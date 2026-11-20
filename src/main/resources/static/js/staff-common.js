@@ -105,26 +105,38 @@
   };
 
   /* ---------------------------------------------------------------- live session */
-  ST.live = async function ([id]) {
+  /** Board view after attendance is turned off: the codes are gone. */
+  ST.boardOff = function (id, title) {
+    ST.cleanup();
+    SA.view("Attendance off", `<section class="projector off-board" id="proj">
+        <div class="course">${esc(title || "")}</div>
+        <div class="off-mark">Attendance off</div>
+        <p class="sub">The QR code and code no longer work.</p>
+        <div class="row center-row"><a class="btn secondary" href="#/">Courses</a><a class="btn ghost light" href="#/sessions/${esc(id)}">View record</a></div>
+      </section>`);
+  };
+
+  ST.live = async function ([id], params) {
     ST.cleanup();
     SA.loading();
     let snap = await api("/api/lecturer/sessions/" + encodeURIComponent(id));
-    if (snap.session.status !== "OPEN") { location.hash = "#/sessions/" + id; return; }
+    if (snap.session.status !== "OPEN") { ST.boardOff(id, snap.session.courseTitle); return; }
     const s = snap.session;
     const v = SA.view("Live attendance", `<div class="live-grid">
       <section class="projector" id="proj" aria-label="Attendance code for students">
         <div class="row"><div class="grow"><div class="course">${esc(s.courseTitle)}</div><div class="sub">${esc([s.courseCode, s.mode === "ONLINE" ? "Online" : s.venue, s.groupName].filter(Boolean).join(" · "))}</div></div>
-          <button class="btn secondary sm" id="fs" type="button">Full screen</button></div>
+          <button class="btn secondary sm" id="offBtn" type="button">Turn off</button>
+          <button class="btn secondary sm" id="fs" type="button">Board</button></div>
         <div class="qr" id="qr" aria-label="QR code"></div>
         <div class="otp" id="otp" aria-live="polite">······</div>
         <div class="timer"><i id="bar"></i></div>
-        <div class="count" id="count">Scan the QR code or enter the code</div>
+        <div class="count" id="count">Scan the QR code or enter the code · changes every 60 s</div>
         <div class="loc" id="loc">Location: starting…</div>
       </section>
       <section class="stack">
         <div class="stats" id="liveStats"></div>
         <div class="panel tight live-actions"><span class="small muted" id="closes"></span>
-          <span class="btns"><button class="btn ghost sm" id="cancelBtn" type="button">Cancel session</button><button class="btn danger sm" id="closeBtn" type="button">Close attendance</button></span></div>
+          <span class="btns"><button class="btn ghost sm" id="cancelBtn" type="button">Cancel session</button><button class="btn danger sm" id="closeBtn" type="button">Turn off attendance</button></span></div>
         <div class="panel"><h3>Signed in</h3><ul class="feed" id="feed"></ul></div>
         <div class="panel"><h3>Failed attempts</h3><ul class="feed" id="fails"></ul></div>
       </section></div>`);
@@ -137,7 +149,7 @@
         offset = new Date(ch.serverNow).getTime() - Date.now(); // align countdown with server time
         qrBox.innerHTML = ch.qrSvg; // server-generated SVG (no user content)
         otpEl.textContent = ch.otp.slice(0, 3) + " " + ch.otp.slice(3);
-      } catch (e) { if (e.code === "SESSION_CLOSED") { stopped = true; location.hash = "#/sessions/" + id; } else SA.toast(e.message, "error"); }
+      } catch (e) { if (e.code === "SESSION_CLOSED") { stopped = true; ST.boardOff(id, s.courseTitle); } else SA.toast(e.message, "error"); }
     }
     function tick() {
       if (!ch || stopped) return;
@@ -167,7 +179,7 @@
     }
     async function refresh() {
       try { snap = await api("/api/lecturer/sessions/" + id); } catch (e) { return; }
-      if (snap.session.status !== "OPEN") { stopped = true; location.hash = "#/sessions/" + id; return; }
+      if (snap.session.status !== "OPEN") { stopped = true; ST.boardOff(id, s.courseTitle); return; }
       renderSnap();
     }
     renderSnap();
@@ -206,20 +218,32 @@
     }
     liveCleanup = () => { stopped = true; clearInterval(timer); clearInterval(poll); es.close(); if (watch !== null) navigator.geolocation.clearWatch(watch); if (unlisten) unlisten(); };
 
-    $("#fs", v).addEventListener("click", () => {
+    const setBoard = (on) => {
       const p = $("#proj", v);
-      const on = p.classList.toggle("fullscreen");
-      $("#fs", v).textContent = on ? "Exit full screen" : "Full screen";
-      if (on && p.requestFullscreen) p.requestFullscreen().catch(() => {}); else if (document.fullscreenElement) document.exitFullscreen();
-    });
+      p.classList.toggle("fullscreen", on);
+      $("#fs", v).textContent = on ? "Exit board" : "Board";
+      if (on && p.requestFullscreen) p.requestFullscreen().catch(() => {});
+      else if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    };
+    $("#fs", v).addEventListener("click", () => setBoard(!$("#proj", v).classList.contains("fullscreen")));
+    if (params && params.board) setBoard(true);
+    const turnOff = async () => {
+      if (!(await SA.confirm("Turn off attendance?", "The QR code and code stop working now. Students who haven't confirmed are marked absent.", "Turn off", true))) return;
+      await busy(null, async () => {
+        const r = await api(`/api/lecturer/sessions/${id}/close`, { method: "POST", body: {} });
+        SA.toast(`Attendance off · ${r.markedAbsent + (r.leftEarly || 0)} absent`, "success");
+        ST.boardOff(id, s.courseTitle);
+      });
+    };
+    $("#offBtn", v).addEventListener("click", turnOff);
     $("#closeBtn", v).addEventListener("click", async () => {
       if (!(await SA.confirm("Close attendance?", "The code and QR stop working immediately. Enrolled students without a record are marked absent.", "Close attendance", true))) return;
-      busy($("#closeBtn", v), async () => { const r = await api(`/api/lecturer/sessions/${id}/close`, { method: "POST", body: {} }); SA.toast(`Attendance closed · ${r.markedAbsent} marked absent`, "success"); ST.cleanup(); location.hash = "#/sessions/" + id; });
+      busy($("#closeBtn", v), async () => { const r = await api(`/api/lecturer/sessions/${id}/close`, { method: "POST", body: {} }); SA.toast(`Attendance off · ${r.markedAbsent + (r.leftEarly || 0)} absent`, "success"); ST.boardOff(id, s.courseTitle); });
     });
     $("#cancelBtn", v).addEventListener("click", async () => {
       const r = await SA.formDialog({ title: "Cancel this session?", intro: "Cancelled sessions don't count towards anyone's attendance percentage.", fields: [{ name: "reason", label: "Reason", type: "text", required: true }], submit: "Cancel session", danger: true });
       if (!r) return;
-      busy(null, async () => { await api(`/api/lecturer/sessions/${id}/cancel`, { method: "POST", body: r }); ST.cleanup(); location.hash = "#/sessions/" + id; });
+      busy(null, async () => { await api(`/api/lecturer/sessions/${id}/cancel`, { method: "POST", body: r }); ST.boardOff(id, s.courseTitle); });
     });
   };
 

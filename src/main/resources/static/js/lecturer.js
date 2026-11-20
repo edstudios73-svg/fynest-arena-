@@ -29,7 +29,7 @@
       SA.route("/", ST.overview, { key: "home" }),
       SA.route("/courses", ST.overview, { key: "courses" }),
       SA.route("/courses/:id", ST.course, { key: "courses" }),
-      SA.route("/live/:id", ST.live, { key: "courses" }),
+      SA.route("/live/:id", (a, p) => ST.live(a, p), { key: "courses" }),
       SA.route("/sessions/:id", ST.session, { key: "courses" }),
       SA.route("/corrections", ST.corrections, { key: "corrections" }),
       SA.route("/alerts", ST.lecturerAlerts, { key: "alerts" }),

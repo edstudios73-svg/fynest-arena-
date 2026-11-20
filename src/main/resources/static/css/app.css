@@ -420,3 +420,25 @@ code.secret { display: block; font-size: 1.25rem; padding: .8rem; background: va
   .panel:has(.face-stage) { padding: .5rem; }
   .face-stage { height: calc(100vh - 210px); min-height: 420px; }
 }
+
+/* ---------- Smart-board view ---------- */
+.projector.fullscreen { grid-template-columns: 1fr; gap: 1.2rem; padding: 2rem; }
+.projector.fullscreen .qr { width: min(58vh, 46vw); }
+.projector.fullscreen .otp { font-size: clamp(4rem, 11vw, 9rem); }
+.projector.fullscreen .course { font-size: 1.6rem; }
+.projector.fullscreen .count, .projector.fullscreen .loc { font-size: 1.1rem; }
+.projector.fullscreen .timer { width: min(900px, 80vw); margin: 0 auto; }
+@media (min-aspect-ratio: 4/3) {
+  .projector.fullscreen { grid-template-columns: auto auto; grid-template-areas: "head head" "qr otp" "qr timer" "qr count" "qr loc"; align-content: center; justify-content: center; column-gap: 4rem; }
+  .projector.fullscreen > .row { grid-area: head; }
+  .projector.fullscreen .qr { grid-area: qr; width: min(70vh, 42vw); align-self: center; }
+  .projector.fullscreen .otp { grid-area: otp; align-self: end; }
+  .projector.fullscreen .timer { grid-area: timer; width: 100%; }
+  .projector.fullscreen .count { grid-area: count; }
+  .projector.fullscreen .loc { grid-area: loc; }
+}
+.off-board { text-align: center; justify-items: center; padding: 3rem 1.5rem; min-height: 60vh; align-content: center; }
+.off-board .off-mark { font-size: clamp(2.4rem, 7vw, 5rem); font-weight: 800; letter-spacing: -.02em; }
+.btn.ghost.light { color: #fff; }
+.btn.ghost.light:hover { background: rgba(255,255,255,.12); color: #fff; }
+.center-row { justify-content: center; }
