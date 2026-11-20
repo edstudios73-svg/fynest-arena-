@@ -9,12 +9,15 @@
    * Throws ApiError with a clear message for camera problems.
    */
   SA.faceCapture = async function (root, challenge, upload) {
-    root.innerHTML = `<div class="face-stage"><video playsinline muted autoplay></video><div class="oval"></div>
+    root.innerHTML = `<div class="face-stage full"><video playsinline muted autoplay></video><div class="oval"></div>
       <span class="arrow left hidden" aria-hidden="true">‹</span><span class="arrow right hidden" aria-hidden="true">›</span>
       <div class="instruction" role="status" aria-live="assertive">Starting camera…</div></div>`;
     const video = SA.$("video", root), oval = SA.$(".oval", root), say = SA.$(".instruction", root);
+    const stage = SA.$(".face-stage", root);
+    const unfull = () => stage.classList.remove("full"); // back to the page when done or on any error
     const arrowL = SA.$(".arrow.left", root), arrowR = SA.$(".arrow.right", root);
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      unfull();
       throw new SA.ApiError(0, "NO_CAMERA", "This browser cannot use the camera. Open SmartAttend in Chrome, Safari or Edge.");
     }
     let stream;
@@ -24,6 +27,7 @@
       const msg = e && e.name === "NotAllowedError"
         ? "Camera permission denied. Allow camera access for this site in your browser settings, then try again."
         : e && e.name === "NotFoundError" ? "No camera was found on this device." : "The camera could not be started. Close other apps using it and try again.";
+      unfull();
       throw new SA.ApiError(0, "CAMERA", msg);
     }
     const stop = () => stream.getTracks().forEach((t) => t.stop());
@@ -61,6 +65,7 @@
       return await upload(fd);
     } finally {
       stop();
+      unfull();
     }
   };
 })();

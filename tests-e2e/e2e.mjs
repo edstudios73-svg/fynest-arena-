@@ -124,7 +124,9 @@ await far.waitForSelector(".alert.error");
 ok(await far.isVisible("text=doesn't match your account"), "someone else's index number is refused");
 await far.fill("#idx", idx);
 await far.click("button:has-text('Next')");
-await far.waitForSelector("#otp");
+await far.waitForSelector("#tabCode");
+ok(await far.isVisible("#scanner"), "code step opens the QR scanner first");
+await far.click("#tabCode");
 await far.fill("#otp", await code());
 await far.click("form button:has-text('Next')");
 await far.waitForSelector(".alert.error", { timeout: 20000 });
@@ -132,8 +134,13 @@ ok(/m away/.test(await far.textContent(".alert.error")), "200 m away → refused
 await far.screenshot({ path: `${SHOTS}/student-too-far-mobile.png` });
 await farCtx.close();
 
-// 2) in class
-const stuCtx = await browser.newContext({ ...devices["Pixel 7"], geolocation: { latitude: CLASS.latitude + 0.0002, longitude: CLASS.longitude, accuracy: 12 }, permissions: ["geolocation"] });
+// 2) in class — scans the QR code on the board with the in-page scanner (fake camera shows the board's QR)
+const qrPng = `${SHOTS}/board-qr.png`, qrVideo = `${SHOTS}/board-qr.y4m`;
+await admin.locator("#qr").screenshot({ path: qrPng });
+execFileSync("ffmpeg", ["-loglevel", "error", "-y", "-loop", "1", "-i", qrPng, "-t", "2", "-r", "10",
+  "-vf", "scale=480:480:force_original_aspect_ratio=decrease,pad=640:640:(ow-iw)/2:(oh-ih)/2:white", "-pix_fmt", "yuv420p", "-f", "yuv4mpegpipe", qrVideo]);
+const qrBrowser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", `--use-file-for-fake-video-capture=${qrVideo}`] });
+const stuCtx = await qrBrowser.newContext({ ...devices["Pixel 7"], geolocation: { latitude: CLASS.latitude + 0.0002, longitude: CLASS.longitude, accuracy: 12 }, permissions: ["geolocation"] });
 await stuCtx.addCookies([{ name: "sa_session", value: token, domain: host, path: "/" }]);
 const stu = await stuCtx.newPage();
 const stuDone = watch(stu, "student");
@@ -143,12 +150,11 @@ await stu.waitForSelector("a:has-text('Mark attendance')");
 await stu.click("a:has-text('Mark attendance')");
 await stu.fill("#idx", idx);
 await stu.click("button:has-text('Next')");
-await stu.waitForSelector("#otp");
+await stu.waitForSelector("#scanner video");
+await stu.waitForTimeout(600);
 await stu.screenshot({ path: `${SHOTS}/student-code-mobile.png` });
-await stu.fill("#otp", await code());
-await stu.click("form button:has-text('Next')");
-await stu.waitForSelector(".confirm h2:has-text('Checked in')", { timeout: 20000 });
-ok(true, "in range (≈22 m) → checked in");
+await stu.waitForSelector(".confirm h2:has-text('Checked in')", { timeout: 30000 });
+ok(true, "QR scanned in the page, in range (≈22 m) → checked in");
 await stu.screenshot({ path: `${SHOTS}/student-checked-in-mobile.png` });
 await admin.waitForFunction(() => document.querySelector("#liveStats .stat b").textContent === "1", null, { timeout: 20000 });
 ok(true, "admin screen shows 1 checked in");
@@ -190,6 +196,7 @@ await reg.waitForSelector(".alert.error", { timeout: 30000 });
 ok(/No face detected|face/i.test(await reg.textContent(".alert.error")), "fake camera (no real face) is refused by the real face engine");
 
 adminDone(); stuDone();
+await qrBrowser.close();
 await browser.close();
 console.log(failures ? `\n${failures} check(s) FAILED` : "\nAll end-to-end checks passed");
 process.exit(failures ? 1 : 0);

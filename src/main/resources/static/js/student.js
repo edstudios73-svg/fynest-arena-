@@ -133,45 +133,121 @@
   }
 
   function codeStep(b) {
-    const canScan = "BarcodeDetector" in window;
     const v = SA.view(b.course.title, `<div class="panel">${steps(2)}
-      ${canScan ? `<button class="btn block lg" id="scan" type="button">${SA.icon.scan} Scan QR code</button><div id="scanner" class="scanner"></div><p class="or">or</p>` : ""}
-      <form id="f" novalidate><div class="field"><label for="otp">Code on the board</label>
-      <input id="otp" class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code"></div>
-      <div class="err"></div><button class="btn block ${canScan ? "secondary" : "lg"}" data-busy="Checking…">Next</button></form></div>`);
+      <div class="seg" role="tablist" aria-label="How to enter the code">
+        <button type="button" role="tab" id="tabQr" aria-selected="true">${SA.icon.scan} Scan QR</button>
+        <button type="button" role="tab" id="tabCode" aria-selected="false">6-digit code</button></div>
+      <div id="paneQr"><div id="scanner" class="scanner"></div>
+        <p class="muted center small" id="scanMsg">Point your camera at the QR code on the board</p></div>
+      <form id="f" class="hidden" novalidate><div class="field"><label for="otp">Code on the board</label>
+        <input id="otp" class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code"></div>
+        <button class="btn block lg" data-busy="Checking…">Next</button></form>
+      <div class="err"></div></div>`);
     const otp = $("#otp", v);
+    let scanner = null;
     otp.addEventListener("input", () => { otp.value = otp.value.replace(/\D/g, "").slice(0, 6); });
-    const send = (body, btn) => busy(btn, async () => {
-      await api(`/api/student/attendance/${b.attemptId}/code`, { method: "POST", body });
-      locationStep(b);
-    }, $(".err", v));
+    const send = async (body, btn) => {
+      let ok = false;
+      await busy(btn, async () => {
+        if (scanner) scanner.stop();
+        await api(`/api/student/attendance/${b.attemptId}/code`, { method: "POST", body });
+        ok = true;
+        locationStep(b);
+      }, $(".err", v));
+      // A QR that didn't work (e.g. it just changed on the board): keep scanning.
+      if (!ok && body.qrToken && v.isConnected) setTimeout(() => { if (v.isConnected && !$("#paneQr", v).classList.contains("hidden")) show("qr", true); }, 1500);
+    };
     $("#f", v).addEventListener("submit", (e) => {
       e.preventDefault();
       if (!/^\d{6}$/.test(otp.value)) { $(".err", v).innerHTML = SA.alert("error", "Enter the 6 digits."); return; }
       send({ otp: otp.value }, $("button", e.target));
     });
-    if (canScan) $("#scan", v).addEventListener("click", () => scanQr($("#scanner", v), (token) => send({ qrToken: token }, null)));
+    function show(which, keepError) {
+      const qr = which === "qr";
+      $("#tabQr", v).setAttribute("aria-selected", String(qr));
+      $("#tabCode", v).setAttribute("aria-selected", String(!qr));
+      $("#paneQr", v).classList.toggle("hidden", !qr);
+      $("#f", v).classList.toggle("hidden", qr);
+      if (scanner) { scanner.stop(); scanner = null; }
+      if (qr) {
+        if (!keepError) $(".err", v).innerHTML = "";
+        $("#scanner", v).classList.remove("found");
+        scanner = scanQr($("#scanner", v), $("#scanMsg", v), (token) => send({ qrToken: token }, null), () => show("code"));
+      } else otp.focus();
+    }
+    $("#tabQr", v).addEventListener("click", () => show("qr"));
+    $("#tabCode", v).addEventListener("click", () => show("code"));
+    show(navigator.mediaDevices && navigator.mediaDevices.getUserMedia ? "qr" : "code");
   }
 
-  async function scanQr(box, onToken) {
-    let stream;
-    try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }); }
-    catch (e) { SA.toast("Camera blocked. Type the code instead.", "error"); return; }
-    box.innerHTML = `<video playsinline muted autoplay></video>`;
+  /** Load the jsQR decoder (for browsers without a built-in QR reader, e.g. iPhone Safari). */
+  let jsQrLoading = null;
+  function loadJsQr() {
+    if (window.jsQR) return Promise.resolve(window.jsQR);
+    jsQrLoading = jsQrLoading || new Promise((resolve, reject) => {
+      const el = document.createElement("script");
+      el.src = "/js/vendor/jsQR.js";
+      el.onload = () => resolve(window.jsQR);
+      el.onerror = () => { jsQrLoading = null; reject(new Error("QR reader failed to load")); };
+      document.head.appendChild(el);
+    });
+    return jsQrLoading;
+  }
+
+  /** In-page QR scanner using the back camera. Returns { stop }. Calls onToken with the code from the board's QR. */
+  function scanQr(box, msg, onToken, fallback) {
+    let stream = null, stopped = false, timer = null;
+    const stop = () => { stopped = true; clearTimeout(timer); if (stream) stream.getTracks().forEach((t) => t.stop()); stream = null; };
+    box.innerHTML = `<video playsinline muted autoplay></video><div class="scan-frame"><i></i><i></i><i></i><i></i><span class="scan-line"></span></div>`;
     const video = $("video", box);
-    video.srcObject = stream;
-    const det = new BarcodeDetector({ formats: ["qr_code"] });
-    const stop = () => stream.getTracks().forEach((t) => t.stop());
-    const started = Date.now();
-    const tick = async () => {
-      if (!box.isConnected || Date.now() - started > 60000) { stop(); return; }
+    (async () => {
       try {
-        const hit = (await det.detect(video)).map((c) => c.rawValue).find((x) => /[#&?]t=/.test(x));
-        if (hit) { stop(); box.innerHTML = ""; return onToken(hit.split("t=")[1].split("&")[0]); }
-      } catch (e) { /* frame not ready */ }
-      requestAnimationFrame(tick);
-    };
-    video.addEventListener("loadeddata", tick, { once: true });
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 1280 } }, audio: false });
+      } catch (e) {
+        msg.textContent = "Camera blocked. Use the 6-digit code instead.";
+        SA.toast("Camera blocked. Type the 6-digit code.", "error");
+        fallback();
+        return;
+      }
+      if (stopped) { stop(); return; }
+      video.srcObject = stream;
+      await new Promise((r) => (video.readyState >= 2 ? r() : video.addEventListener("loadeddata", r, { once: true })));
+      let detect;
+      if ("BarcodeDetector" in window) {
+        const det = new BarcodeDetector({ formats: ["qr_code"] });
+        detect = async () => (await det.detect(video)).map((c) => c.rawValue);
+      } else {
+        const jsQR = await loadJsQr().catch(() => null);
+        if (!jsQR) { msg.textContent = "Scanner unavailable. Use the 6-digit code."; fallback(); return; }
+        const canvas = document.createElement("canvas"), ctx = canvas.getContext("2d", { willReadFrequently: true });
+        detect = async () => {
+          const w = video.videoWidth, h = video.videoHeight, scale = Math.min(1, 640 / Math.max(w, h));
+          canvas.width = Math.round(w * scale); canvas.height = Math.round(h * scale);
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const r = jsQR(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, { inversionAttempts: "dontInvert" });
+          return r ? [r.data] : [];
+        };
+      }
+      const started = Date.now();
+      const tick = async () => {
+        if (stopped || !box.isConnected) { stop(); return; }
+        if (Date.now() - started > 120000) { stop(); msg.textContent = "Scanner paused. Tap Scan QR to try again."; return; }
+        try {
+          const found = await detect();
+          const hit = found.find((x) => /[#&?]t=/.test(x));
+          if (hit) {
+            stop();
+            box.classList.add("found");
+            msg.textContent = "QR code found…";
+            return onToken(decodeURIComponent(hit.split("t=")[1].split("&")[0]));
+          }
+          if (found.length) msg.textContent = "That isn't the attendance QR code.";
+        } catch (e) { /* frame not ready */ }
+        timer = setTimeout(tick, 150);
+      };
+      tick();
+    })();
+    return { stop };
   }
 
   function getLocation() {
