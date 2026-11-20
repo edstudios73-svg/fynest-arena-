@@ -60,6 +60,28 @@ class OwnerFlowTest extends IntegrationTest {
     }
 
     @Test
+    void registrationFaceIsTheOnlyFaceThatWorksForever() {
+        seedStudents(1);
+        verifyRegister();
+        Student alice = register("TEST00001", "alice");
+        String saved = db.scalar("SELECT encode(digest(template_ciphertext, 'sha256'), 'hex') FROM biometric_enrollments", String.class);
+        // Registering again with the same index number is refused
+        assertEquals("ALREADY_REGISTERED", client().post("/api/auth/student/register/start", Map.of("indexNumber", "TEST00001")).code());
+        // Another face cannot mark attendance for this index number
+        Client admin = admin("SUPER_ADMIN");
+        String sid = start(admin);
+        JsonNode b = expectOk(alice.client().post("/api/student/attendance/begin", Map.of("sessionId", sid, "indexNumber", "TEST00001"))).json();
+        String att = b.path("attemptId").asText();
+        Client.Resp bad = faceUpload(alice.client(), "/api/student/attendance/" + att + "/face", b.path("faceChallenge"), "mallory", null);
+        assertFalse(bad.status() == 200 && bad.json().path("passed").asBoolean(true), "another face is refused: " + bad.json());
+        assertEquals("FACE_REQUIRED", alice.client().post("/api/student/attendance/" + att + "/code",
+                Map.of("otp", challenge(admin, sid).path("otp").asText())).code());
+        // The saved face was never replaced
+        assertEquals(1, db.scalar("SELECT count(*)::int FROM biometric_enrollments", Integer.class));
+        assertEquals(saved, db.scalar("SELECT encode(digest(template_ciphertext, 'sha256'), 'hex') FROM biometric_enrollments", String.class));
+    }
+
+    @Test
     void fullOwnerFlowWithGeofenceAndEndOfClassConfirmation() {
         seedStudents(3);
         verifyRegister();
