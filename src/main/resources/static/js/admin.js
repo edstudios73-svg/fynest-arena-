@@ -19,8 +19,12 @@
     SA.courseRep = me.role === "ADMIN";
     const repNav = [
       { key: "home", href: "#/", label: "Courses", icon: "book" },
+      { key: "sessions", href: "#/sessions", label: "Past classes", icon: "list" },
+      { key: "analytics", href: "#/analytics", label: "Attendance", icon: "chart" },
+      { key: "reports", href: "#/reports", label: "Reports", icon: "file" },
       { key: "account", href: "#/account", label: "My account", icon: "user" },
     ];
+    const repTabs = repNav.filter((n) => n.key !== "account");
     SA.shell({
       me, home: "#/", cls: "staff",
       nav: SA.courseRep ? repNav : [
@@ -37,7 +41,7 @@
         { key: "audit", href: "#/audit", label: "Audit log", icon: "log" },
         { key: "account", href: "#/account", label: "My account", icon: "user" },
       ],
-      tabs: SA.courseRep ? repNav : [
+      tabs: SA.courseRep ? repTabs : [
         { key: "home", href: "#/", label: "Courses", icon: "book" },
         { key: "students", href: "#/students", label: "Students", icon: "users" },
         { key: "register", href: "#/register", label: "Class list", icon: "upload" },
@@ -526,10 +530,11 @@
   async function sessions(_, params) {
     SA.loading();
     const rows = await api("/api/admin/sessions" + (params.status ? "?status=" + encodeURIComponent(params.status) : ""));
-    const v = SA.view("Attendance sessions", `<div class="filters"><select id="st" aria-label="Status"><option value="">All sessions</option>${["OPEN", "CLOSED", "CANCELLED"].map((s) => `<option ${params.status === s ? "selected" : ""} value="${s}">${SA.label(s)}</option>`).join("")}</select></div>
+    const v = SA.view("Past classes", `<div class="filters"><select id="st" aria-label="Status"><option value="">All sessions</option>${["OPEN", "CLOSED", "CANCELLED"].map((s) => `<option ${params.status === s ? "selected" : ""} value="${s}">${SA.label(s)}</option>`).join("")}</select></div>
       ${SA.table([{ label: "Date", get: (s) => SA.date(s.sessionDate) }, { label: "Opened", get: (s) => SA.time(s.openedAt) }, { label: "Course", get: (s) => (s.code || "") + " " + s.title },
         { label: "Venue", get: (s) => s.mode === "ONLINE" ? "Online" : s.venue || "—" }, { label: "Started by", key: "startedBy" }, { label: "Status", html: (s) => SA.badge(s.status) },
-        { label: "Attended", num: true, key: "attended" }, { label: "Review", num: true, key: "pending" }, { label: "", html: (s) => `<a href="#/${s.status === "OPEN" ? "live" : "sessions"}/${esc(s.id)}">${s.status === "OPEN" ? "Live" : "View"}</a>` }], rows, "No sessions yet.")}`);
+        { label: "Attended", num: true, key: "attended" }, { label: "Review", num: true, key: "pending" }, { label: "", html: (s) => `<div class="row"><a class="btn ghost sm" href="#/${s.status === "OPEN" ? "live" : "sessions"}/${esc(s.id)}">${s.status === "OPEN" ? "Live" : "View"}</a>${s.status === "CLOSED" ? `<button class="btn secondary sm" type="button" data-dl="/api/lecturer/reports/session/${esc(s.id)}?format=pdf">PDF</button>` : ""}</div>` }], rows, "No classes yet.")}`);
+    ST().bindDownloads(v);
     $("#st", v).addEventListener("change", (e) => (location.hash = "#/sessions" + (e.target.value ? "?status=" + e.target.value : "")));
   }
 
@@ -544,24 +549,24 @@
       <div class="grid2"><div class="panel"><h3>Weekly trend</h3>${SA.trendChart(a.trend)}</div>
       <div class="panel"><h3>Distribution of students</h3>${SA.bars(a.summary.distribution.map((d) => ({ label: d.label, value: d.count, pct: (d.count * 100) / total })))}</div></div>
       <div class="panel"><h3>By course</h3>${SA.bars(a.byCourse.map((c) => ({ label: c.code || c.title, value: SA.pct(c.percentage), pct: c.percentage })))}</div>
-      <div class="grid2"><div class="panel"><h3>Low attendance (below ${p.lowThreshold}%)</h3>${SA.table([{ label: "Student", html: (s) => `<a href="#/students/${esc(s.studentId)}">${esc(s.name)}</a><div class="small muted">${esc(s.indexNumber)}</div>` }, { label: "Attended", num: true, get: (s) => s.attended + "/" + s.eligible }, { label: "%", num: true, get: (s) => SA.pct(s.percentage) }], a.low, "No students below the threshold.")}</div>
+      <div class="grid2"><div class="panel"><h3>Low attendance (below ${p.lowThreshold}%)</h3>${SA.table([{ label: "Student", html: (s) => `${SA.courseRep ? esc(s.name) : `<a href="#/students/${esc(s.studentId)}">${esc(s.name)}</a>`}<div class="small muted">${esc(s.indexNumber)}</div>` }, { label: "Attended", num: true, get: (s) => s.attended + "/" + s.eligible }, { label: "%", num: true, get: (s) => SA.pct(s.percentage) }], a.low, "No students below the threshold.")}</div>
       <div class="panel"><h3>Excellent attendance (${p.excellentThreshold}%+)</h3>${SA.table([{ label: "Student", get: (s) => s.name }, { label: "%", num: true, get: (s) => SA.pct(s.percentage) }], a.excellent.slice(0, 20), "None yet.")}</div></div>
-      <p class="small muted">Only closed sessions count. Late ${p.lateCountsAsAttended ? "counts" : "does not count"} as attended; excused sessions are ${p.excusedExcludedFromDenominator ? "excluded from" : "included in"} the denominator; pending reviews count as not attended until approved. Change these in Policies & settings.</p>`);
+      <p class="small muted">Only closed sessions count. Late ${p.lateCountsAsAttended ? "counts" : "does not count"} as attended; excused sessions are ${p.excusedExcludedFromDenominator ? "excluded from" : "included in"} the denominator; pending reviews count as not attended until approved. ${SA.courseRep ? "" : "Change these in Policies & settings."}</p>`);
     $("#c", v).addEventListener("change", (e) => (location.hash = "#/analytics" + (e.target.value ? "?courseId=" + e.target.value : "")));
   }
 
   async function reports() {
     SA.loading();
-    const [courseRows, lecs, groups] = await Promise.all([api("/api/admin/courses"), api("/api/admin/lecturers"), api("/api/admin/groups")]);
+    const [courseRows, lecs, groups] = await Promise.all([api("/api/admin/courses"), SA.courseRep ? [] : api("/api/admin/lecturers"), api("/api/admin/groups")]);
     const v = SA.view("Reports", `<div class="panel"><h3>Attendance records</h3><p class="muted">Every record matching the filters (by course, lecturer, class and date range).</p>
       <form id="rf" class="grid2"><div class="field"><label for="rc">Course</label><select id="rc" name="courseId"><option value="">All</option>${courseRows.map((c) => `<option value="${esc(c.id)}">${esc((c.code || "") + " " + c.title)}</option>`).join("")}</select></div>
-      <div class="field"><label for="rl">Lecturer</label><select id="rl" name="lecturerId"><option value="">All</option>${lecs.map((l) => `<option value="${esc(l.id)}">${esc(l.fullName)}</option>`).join("")}</select></div>
+      ${SA.courseRep ? "" : `<div class="field"><label for="rl">Lecturer</label><select id="rl" name="lecturerId"><option value="">All</option>${lecs.map((l) => `<option value="${esc(l.id)}">${esc(l.fullName)}</option>`).join("")}</select></div>`}
       <div class="field"><label for="rg">Class</label><select id="rg" name="classGroupId"><option value="">All</option>${groups.map((g) => `<option value="${esc(g.id)}">${esc(g.programme)} L${esc(g.level)} ${esc(g.name)}</option>`).join("")}</select></div>
       <div class="field"><label for="rfrom">From</label><input id="rfrom" type="date" name="from"></div><div class="field"><label for="rto">To</label><input id="rto" type="date" name="to"></div>
-      <div class="field"><label for="rfmt">Format</label><select id="rfmt" name="format"><option value="xlsx">Excel (.xlsx)</option><option value="pdf">PDF</option><option value="csv">CSV</option></select></div>
+      <div class="field"><label for="rfmt">Format</label><select id="rfmt" name="format"><option value="pdf">PDF</option><option value="xlsx">Excel (.xlsx)</option><option value="csv">CSV</option></select></div>
       <div><button class="btn" data-busy="Preparing…">Download</button></div></form></div>
       <div class="panel"><h3>Course summaries (current semester)</h3>${SA.table([{ label: "Course", get: (c) => (c.code || "") + " " + c.title }, { label: "", html: (c) => ST().reportButtons("/api/admin/reports/course/" + c.id, "") }], courseRows)}</div>
-      <p class="small muted">Individual student reports are on each student's page.</p>`);
+      ${SA.courseRep ? `<p class="small muted">For one class, open it in Past classes and download its attendance sheet.</p>` : `<p class="small muted">Individual student reports are on each student's page.</p>`}`);
     $("#rf", v).addEventListener("submit", (e) => { e.preventDefault(); const p = new URLSearchParams(new FormData(e.target)); [...p.keys()].forEach((k) => !p.get(k) && p.delete(k)); busy($("button", e.target), () => SA.download("/api/admin/reports/records?" + p)); });
     ST().bindDownloads(v);
   }

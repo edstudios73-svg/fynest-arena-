@@ -93,7 +93,7 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     private static final String UUID_RE = "[0-9a-fA-F-]{36}";
-    /** Course reps (role ADMIN): see and edit courses, turn attendance on/off, show the board and see who checked in. Nothing else. */
+    /** Course reps (role ADMIN): run courses (on/off, edit, board), see past classes, track attendance and download reports. Nothing else. */
     private static final List<String[]> COURSE_REP = List.of(
             new String[] {"GET", "/api/admin/courses"},
             new String[] {"PUT", "/api/admin/courses/" + UUID_RE},
@@ -102,7 +102,15 @@ public class AuthFilter extends OncePerRequestFilter {
             new String[] {"GET", "/api/lecturer/sessions/" + UUID_RE + "/challenge"},
             new String[] {"GET", "/api/lecturer/sessions/" + UUID_RE + "/stream"},
             new String[] {"POST", "/api/lecturer/sessions/" + UUID_RE + "/anchor"},
-            new String[] {"POST", "/api/lecturer/sessions/" + UUID_RE + "/close"});
+            new String[] {"POST", "/api/lecturer/sessions/" + UUID_RE + "/close"},
+            // past classes, reports and attendance tracking (read-only)
+            new String[] {"GET", "/api/admin/sessions"},
+            new String[] {"GET", "/api/admin/analytics"},
+            new String[] {"GET", "/api/admin/groups"},
+            new String[] {"GET", "/api/admin/reports/records"},
+            new String[] {"GET", "/api/admin/reports/course/" + UUID_RE},
+            new String[] {"GET", "/api/lecturer/reports/session/" + UUID_RE},
+            new String[] {"GET", "/api/lecturer/reports/course/" + UUID_RE});
 
     static boolean courseRepAllowed(String method, String path) {
         for (String[] a : COURSE_REP) if (a[0].equalsIgnoreCase(method) && path.matches(a[1])) return true;

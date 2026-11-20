@@ -281,6 +281,7 @@ public class LecturerController {
     public ResponseEntity<byte[]> sessionReport(@PathVariable UUID sessionId, @RequestParam(defaultValue = "csv") String format) {
         access.requireSession(AuthContext.require(), sessionId);
         audit.log("REPORT_EXPORTED", "attendance_session", sessionId, Json.obj("format", format));
+        if ("pdf".equalsIgnoreCase(format)) return renderer.sessionSheetPdf(reports.sessionSheet(sessionId));
         return renderer.render(reports.session(sessionId), format);
     }
 }

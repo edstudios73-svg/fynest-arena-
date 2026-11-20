@@ -258,7 +258,7 @@
     const v = SA.view("Session record", `<p class="muted">${esc(s.courseCode || "")} ${esc(s.courseTitle)} · ${esc(SA.date(s.sessionDate))} · ${esc(SA.label(s.mode))}${s.venue ? " · " + esc(s.venue) : ""} · ${SA.badge(s.status)}</p>
       <div class="stats">${Object.entries(snap.counts).map(([k, n]) => `<div class="stat"><b>${n}</b><span>${esc(SA.label(k))}</span></div>`).join("")}</div>
       ${SA.isSuper && s.status === "CLOSED" ? `<div class="row"><button class="btn sm success" type="button" data-all="PRESENT">Everyone present</button><button class="btn sm secondary" type="button" data-all="ABSENT">Clear all marks</button></div><br>` : ""}
-      <div class="panel"><div class="panel-head"><h3>Students</h3>${SA.courseRep ? "" : ST.reportButtons("/api/lecturer/reports/session/" + id, "Session")}</div>
+      <div class="panel"><div class="panel-head"><h3>Students</h3><div class="row"><button class="btn sm" type="button" data-dl="/api/lecturer/reports/session/${esc(id)}?format=pdf">Attendance sheet (PDF)</button><button class="btn secondary sm" type="button" data-dl="/api/lecturer/reports/session/${esc(id)}?format=xlsx">Excel</button></div></div>
       ${SA.table([{ label: "Index", key: "indexNumber" }, { label: "Name", key: "name" },
         { label: "Status", html: (r) => byStudent[r.studentId] ? SA.badge(byStudent[r.studentId].status) : SA.badge("ABSENT") },
         { label: "Time", get: (r) => byStudent[r.studentId] && byStudent[r.studentId].status !== "ABSENT" ? SA.time(byStudent[r.studentId].submittedAt) : "—" },

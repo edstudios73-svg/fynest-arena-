@@ -61,7 +61,7 @@ class OwnerFlowTest extends IntegrationTest {
     }
 
     @Test
-    void courseRepCanRunCoursesButNothingElse() {
+    void courseRepRunsCoursesAndReportsButNothingElse() {
         seedStudents(2);
         verifyRegister();
         Client rep = admin("ADMIN");
@@ -83,6 +83,15 @@ class OwnerFlowTest extends IntegrationTest {
         assertEquals(200, rep.post("/api/lecturer/sessions/" + sid + "/close", Map.of()).status(), "rep turns attendance off");
         assertEquals(403, rep.post("/api/admin/sessions/" + sid + "/mark-all", Map.of("status", "PRESENT")).status());
         assertEquals(403, rep.post("/api/admin/courses/" + cid + "/manual-class", Map.of()).status());
+        // Past classes, attendance tracking and reports
+        assertEquals(200, rep.get("/api/admin/sessions").status());
+        assertEquals(200, rep.get("/api/admin/analytics").status());
+        assertEquals(200, rep.get("/api/admin/reports/course/" + cid + "?format=pdf").status());
+        assertEquals(200, rep.get("/api/admin/reports/records?format=xlsx").status());
+        Client.Resp pdf = rep.get("/api/lecturer/reports/session/" + sid + "?format=pdf");
+        assertEquals(200, pdf.status());
+        assertTrue(pdf.text().startsWith("%PDF"), "attendance sheet is a PDF");
+        assertEquals(403, rep.get("/api/admin/reports/student/" + db.scalar("SELECT id FROM students LIMIT 1", UUID.class)).status());
     }
 
     @Test

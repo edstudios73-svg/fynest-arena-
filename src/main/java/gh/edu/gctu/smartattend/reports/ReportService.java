@@ -76,6 +76,43 @@ public class ReportService {
                 out, "session-" + slug(label(s)) + "-" + s.get("sessionDate"));
     }
 
+    /** Data for the printable class attendance sheet (PDF) sent to the lecturer. */
+    public record Person(String index, String name, String status, String time) {}
+    public record Sheet(String course, String code, String lecturer, String date, String time, String venue, String group,
+                        String status, List<Person> present, List<Person> absent, String fileBase) {}
+
+    public Sheet sessionSheet(UUID sessionId) {
+        Map<String, Object> s = db.one("""
+                SELECT s.*, c.code, c.title, c.lecturer_name, v.code AS venue, g.name AS group_name
+                FROM attendance_sessions s JOIN courses c ON c.id = s.course_id JOIN class_groups g ON g.id = s.class_group_id
+                LEFT JOIN venues v ON v.id = s.venue_id WHERE s.id = :id""", "id", sessionId);
+        if (s == null) throw ApiException.notFound("SESSION_NOT_FOUND", "Session not found.");
+        List<Map<String, Object>> rows = db.list("""
+                SELECT st.index_number, st.first_name, st.last_name, st.other_names, r.status, r.submitted_at
+                FROM course_enrollments e JOIN students st ON st.id = e.student_id
+                LEFT JOIN attendance_records r ON r.session_id = :s AND r.student_id = st.id
+                WHERE e.course_id = :c AND e.semester_id = :sem AND e.status = 'ENROLLED' AND st.class_group_id = :g
+                ORDER BY st.index_number""", "s", sessionId, "c", s.get("courseId"), "sem", s.get("semesterId"), "g", s.get("classGroupId"));
+        List<Person> present = new ArrayList<>(), absent = new ArrayList<>();
+        for (var r : rows) {
+            String st = (String) r.get("status");
+            boolean came = "PRESENT".equals(st) || "LATE".equals(st) || "CHECKED_IN".equals(st);
+            String time = came && r.get("submittedAt") != null ? DateTimeFormatter.ofPattern("HH:mm").withZone(AcademicCalendar.ZONE).format((Instant) r.get("submittedAt")) : "";
+            String label = st == null ? "Absent" : switch (st) {
+                case "PRESENT" -> "Present"; case "LATE" -> "Late"; case "CHECKED_IN" -> "Checked in"; case "EXCUSED" -> "Excused";
+                default -> "Absent";
+            };
+            (came ? present : absent).add(new Person((String) r.get("indexNumber"), StudentDirectory.fullName(r), label, time));
+        }
+        Instant opened = (Instant) s.get("openedAt");
+        java.time.LocalDate d = (java.time.LocalDate) s.get("sessionDate");
+        return new Sheet((String) s.get("title"), (String) s.get("code"), (String) s.get("lecturerName"),
+                d.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy")),
+                opened == null ? "" : DateTimeFormatter.ofPattern("HH:mm").withZone(AcademicCalendar.ZONE).format(opened),
+                (String) s.get("venue"), (String) s.get("groupName"), (String) s.get("status"), present, absent,
+                "attendance-" + slug(label(s)) + "-" + d);
+    }
+
     public Report student(UUID studentId) {
         Map<String, Object> st = db.one("SELECT * FROM students WHERE id = :s", "s", studentId);
         if (st == null) throw ApiException.notFound("STUDENT_NOT_FOUND", "Student not found.");
